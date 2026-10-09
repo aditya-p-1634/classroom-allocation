@@ -122,6 +122,10 @@ class EventRecord(BaseModel):
     related_session_id: str = Field(..., description="Session directly targeted/impacted in demo")
 
 
+# Alias for domain clarity in simulation contexts
+DisruptionEvent = EventRecord
+
+
 class ComplaintRecord(BaseModel):
     """Represents a demonstration service complaint from complaints.csv."""
     complaint_id: str = Field(..., description="Unique complaint identifier (e.g. 'CMP-DEMO-001')")

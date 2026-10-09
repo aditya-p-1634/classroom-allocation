@@ -18,6 +18,9 @@ from backend.app.schemas.validation import (
 from backend.app.services.data_loader import DataLoaderService
 from backend.app.core.baseline_allocator import BaselineGreedyAllocator
 from backend.app.core.validator import IndependentValidator
+from backend.app.core.optimizer import CPSATRoomOptimizer
+from backend.app.core.metrics import MetricsCalculator, AllocationMetrics, MetricComparison
+from backend.app.core.simulation_engine import SimulationEngine, DisruptionSimulationResult
 
 
 class AllocationService:
@@ -187,4 +190,105 @@ class AllocationService:
             allocator_name="BaselineGreedyAllocator_PartialReallocation",
             capacity_mode=capacity_mode.value,
             execution_time_ms=round(elapsed_ms, 2),
+        )
+
+    def run_optimized_allocation(
+        self,
+        academic_cycle: str = "all",
+        allow_computing_lab_exception: bool = False,
+        capacity_mode: CapacityPolicyMode = CapacityPolicyMode.FACTUAL,
+        synthetic_room_capacities: Optional[Dict[str, int]] = None,
+        synthetic_session_demands: Optional[Dict[str, int]] = None,
+        time_limit_seconds: float = 10.0,
+    ) -> AllocationResult:
+        """Executes CP-SAT mathematical optimization and independently validates candidate."""
+        optimizer = CPSATRoomOptimizer(
+            snapshot=self.snapshot,
+            allow_computing_lab_exception=allow_computing_lab_exception,
+            capacity_mode=capacity_mode,
+            synthetic_room_capacities=synthetic_room_capacities,
+            synthetic_session_demands=synthetic_session_demands,
+        )
+
+        return optimizer.solve_and_validate(
+            academic_cycle=academic_cycle,
+            time_limit_seconds=time_limit_seconds,
+        )
+
+    def compare_baseline_and_optimizer(
+        self,
+        academic_cycle: str = "odd",
+        allow_computing_lab_exception: bool = False,
+        capacity_mode: CapacityPolicyMode = CapacityPolicyMode.FACTUAL,
+        synthetic_room_capacities: Optional[Dict[str, int]] = None,
+        synthetic_session_demands: Optional[Dict[str, int]] = None,
+        time_limit_seconds: float = 10.0,
+    ) -> MetricComparison:
+        """Runs both baseline and optimizer under identical inputs and returns side-by-side comparison."""
+        calc = MetricsCalculator(self.snapshot)
+
+        baseline_res = self.run_baseline_allocation(
+            academic_cycle=academic_cycle,
+            allow_computing_lab_exception=allow_computing_lab_exception,
+            capacity_mode=capacity_mode,
+            synthetic_room_capacities=synthetic_room_capacities,
+            synthetic_session_demands=synthetic_session_demands,
+        )
+        baseline_metrics = calc.calculate_metrics(
+            candidate=baseline_res.candidate,
+            allocator_name="BaselineGreedyAllocator",
+            evaluation_mode=capacity_mode.value,
+            synthetic_room_capacities=synthetic_room_capacities,
+            synthetic_session_demands=synthetic_session_demands,
+            execution_time_ms=baseline_res.execution_time_ms,
+        )
+
+        opt_res = self.run_optimized_allocation(
+            academic_cycle=academic_cycle,
+            allow_computing_lab_exception=allow_computing_lab_exception,
+            capacity_mode=capacity_mode,
+            synthetic_room_capacities=synthetic_room_capacities,
+            synthetic_session_demands=synthetic_session_demands,
+            time_limit_seconds=time_limit_seconds,
+        )
+        opt_metrics = calc.calculate_metrics(
+            candidate=opt_res.candidate,
+            allocator_name="CPSATRoomOptimizer",
+            evaluation_mode=capacity_mode.value,
+            synthetic_room_capacities=synthetic_room_capacities,
+            synthetic_session_demands=synthetic_session_demands,
+            execution_time_ms=opt_res.execution_time_ms,
+        )
+
+        return calc.compare_allocations(baseline_metrics, opt_metrics)
+
+    def run_disruption_simulation(
+        self,
+        event_id: str,
+        initial_assignments: Optional[Dict[str, str]] = None,
+        max_unaffected_reassignments: int = 2,
+        time_limit_seconds: float = 5.0,
+    ) -> DisruptionSimulationResult:
+        """Runs controlled dynamic simulation for a specific event from events catalog."""
+        event = next((e for e in self.snapshot.events if e.event_id == event_id), None)
+        if not event:
+            from backend.app.core.simulation_engine import SimulationStatus
+            return DisruptionSimulationResult(
+                event_id=event_id,
+                event_type="unknown",
+                status=SimulationStatus.INVALID_EVENT,
+                message=f"Event ID '{event_id}' not found in events catalog.",
+                affected_sessions=[],
+                diagnosis=f"Event '{event_id}' does not exist.",
+            )
+
+        sim_engine = SimulationEngine(
+            snapshot=self.snapshot,
+            initial_assignments=initial_assignments,
+        )
+
+        return sim_engine.simulate_disruption(
+            event=event,
+            max_unaffected_reassignments=max_unaffected_reassignments,
+            time_limit_seconds=time_limit_seconds,
         )
