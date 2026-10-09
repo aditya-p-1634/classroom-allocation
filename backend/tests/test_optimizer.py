@@ -26,7 +26,7 @@ def test_optimizer_candidate_independent_validation(snapshot: DatasetSnapshot):
     # Run optimizer on even cycle (570 sessions)
     result = alloc_service.run_optimized_allocation(
         academic_cycle="even",
-        time_limit_seconds=15.0,
+        time_limit_seconds=10.0,
     )
 
     assert result.allocator_name == "CPSATRoomOptimizer"
@@ -42,7 +42,7 @@ def test_optimizer_preserves_hard_constraints(snapshot: DatasetSnapshot):
     alloc_service = AllocationService(snapshot)
     result = alloc_service.run_optimized_allocation(
         academic_cycle="even",
-        time_limit_seconds=15.0,
+        time_limit_seconds=10.0,
     )
 
     candidate = result.candidate
@@ -93,7 +93,7 @@ def test_optimizer_measurable_improvement_over_baseline(snapshot: DatasetSnapsho
 
     comparison = alloc_service.compare_baseline_and_optimizer(
         academic_cycle="even",
-        time_limit_seconds=15.0,
+        time_limit_seconds=10.0,
     )
 
     # Baseline walking time should be >= optimized walking time
@@ -111,7 +111,7 @@ def test_factual_vs_synthetic_modes_separation(snapshot: DatasetSnapshot):
         snapshot=snapshot,
         capacity_mode=CapacityPolicyMode.FACTUAL,
     )
-    res_factual = optimizer_factual.solve_and_validate(academic_cycle="even", time_limit_seconds=15.0)
+    res_factual = optimizer_factual.solve_and_validate(academic_cycle="even", time_limit_seconds=10.0)
 
     # Factual mode must report insufficient evidence for capacity
     assert res_factual.validation.insufficient_evidence_count > 0
@@ -127,7 +127,7 @@ def test_factual_vs_synthetic_modes_separation(snapshot: DatasetSnapshot):
         synthetic_room_capacities=synthetic_caps,
         synthetic_session_demands=synthetic_demands,
     )
-    res_synth = optimizer_synth.solve_and_validate(academic_cycle="even", time_limit_seconds=15.0)
+    res_synth = optimizer_synth.solve_and_validate(academic_cycle="even", time_limit_seconds=10.0)
     assert res_synth.capacity_mode == "synthetic_evaluation"
     assert res_synth.validation.is_valid is True
 

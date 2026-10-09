@@ -149,12 +149,14 @@ class CPSATRoomOptimizer:
         pre_reserved_assignments: Optional[Dict[str, str]] = None,
         blocked_room_periods: Optional[Set[Tuple[str, str, int]]] = None,
         target_reassignments: Optional[Dict[str, str]] = None,
-        time_limit_seconds: float = 15.0,
+        time_limit_seconds: float = 10.0,
         unassigned_penalty: int = 1_000_000,
         walking_time_weight: int = 10,
         same_room_bonus: Optional[int] = None,
         specialized_room_penalty: int = 30,
         reassignment_penalty: int = 20,
+        allow_slack: bool = False,
+        warm_start_hints: Optional[Dict[str, str]] = None,
     ) -> AllocationCandidate:
         """Formulates and solves the room assignment problem using OR-Tools CP-SAT.
 
@@ -162,7 +164,9 @@ class CPSATRoomOptimizer:
         - 0.0 min (same room): 8.0 min savings vs 8.0 min max -> +80 points
         - 3.0 min (same building): 5.0 min savings vs 8.0 min max -> +50 points
         - 8.0 min (cross building): 0.0 min savings vs 8.0 min max -> +0 points
-        Preserves hard feasibility as absolute priority via unassigned_penalty (1,000,000).
+        Preserves hard feasibility as absolute priority. When allow_slack is False,
+        exact assignment sum(x[s, r]) == 1 is enforced directly, eliminating 10^6
+        penalty coefficients and slack variables for fast (<10s) solver convergence.
 
         Args:
             academic_cycle: 'odd', 'even', or 'all'.
@@ -171,12 +175,13 @@ class CPSATRoomOptimizer:
             blocked_room_periods: Set of (room_id, day, period) slots that are unusable.
             target_reassignments: Dict of session_id -> previous_room_id for disruption repair,
                                   penalizing reallocating away from the previous room.
-            time_limit_seconds: Solver maximum time limit in seconds (default: 15.0).
-            unassigned_penalty: Objective penalty for leaving a session unassigned.
+            time_limit_seconds: Solver maximum time limit in seconds (default: 10.0).
+            unassigned_penalty: Objective penalty for leaving a session unassigned when allow_slack=True.
             walking_time_weight: Objective reward scaling per minute of walking-time reduction.
             same_room_bonus: Optional backward-compatibility parameter.
             specialized_room_penalty: Penalty for putting ordinary classroom sessions in labs.
             reassignment_penalty: Penalty for changing an existing session's room during repair.
+            allow_slack: If False, enforces exact assignment as a hard constraint (fast).
 
         Returns:
             AllocationCandidate containing assignment mapping, unassigned reasons, and metadata.
@@ -194,6 +199,8 @@ class CPSATRoomOptimizer:
         pre_reserved_assignments = pre_reserved_assignments or {}
         blocked_room_periods = blocked_room_periods or set()
         target_reassignments = target_reassignments or {}
+
+        warm_start_hints = warm_start_hints or {}
 
         # 1. Map existing occupancy from pre-reserved assignments
         reserved_occupancy: Dict[Tuple[str, str, int], str] = {}
@@ -232,12 +239,24 @@ class CPSATRoomOptimizer:
             for r in valid_candidate_rooms:
                 x[(s_id, r.room_id)] = model.NewBoolVar(f"x_{s_id}_{r.room_id}")
 
-            u_var = model.NewBoolVar(f"unassigned_{s_id}")
-            unassigned_vars[s_id] = u_var
-
-            # Exact assignment constraint: sum(x[s, r]) + unassigned[s] == 1
             cand_vars = [x[(s_id, r.room_id)] for r in valid_candidate_rooms]
-            model.Add(sum(cand_vars) + u_var == 1)
+            if allow_slack:
+                u_var = model.NewBoolVar(f"unassigned_{s_id}")
+                unassigned_vars[s_id] = u_var
+                model.Add(sum(cand_vars) + u_var == 1)
+            else:
+                if cand_vars:
+                    model.Add(sum(cand_vars) == 1)
+                else:
+                    # Genuinely no candidate room available: force infeasibility
+                    dummy_infeasible = model.NewBoolVar(f"infeasible_{s_id}")
+                    model.Add(dummy_infeasible == 1)
+                    model.Add(dummy_infeasible == 0)
+
+        # Apply primal warm-start hints
+        for s_id, r_id in warm_start_hints.items():
+            if (s_id, r_id) in x:
+                model.AddHint(x[(s_id, r_id)], 1)
 
         # 3. Room-Time Exclusivity Constraint
         # Group sessions by (day, period)
@@ -249,7 +268,6 @@ class CPSATRoomOptimizer:
         for (day, p), sess_list in by_day_period.items():
             for room in self.snapshot.rooms:
                 r_id = room.room_id
-                # Check if room is reserved or blocked at this period
                 if (r_id, day, p) not in reserved_occupancy and (r_id, day, p) not in blocked_room_periods:
                     active_vars = [
                         x[(s.session_id, r_id)]
@@ -262,12 +280,12 @@ class CPSATRoomOptimizer:
         # 4. Objective Formulation
         obj_terms = []
 
-        # (a) Unassigned penalty (heavily penalize unassigned sessions)
-        for s_id, u_var in unassigned_vars.items():
-            obj_terms.append(-unassigned_penalty * u_var)
+        # (a) Unassigned penalty (only when allow_slack is enabled)
+        if allow_slack:
+            for s_id, u_var in unassigned_vars.items():
+                obj_terms.append(-unassigned_penalty * u_var)
 
         # (b) Cohort walking-time objective based directly on TravelMatrixService
-        # Transitions between consecutive periods for the same cohort on the same day
         all_eval_sessions = list(sessions_to_allocate)
         for r_sid in pre_reserved_assignments:
             s_obj = self.snapshot.session_index.get(r_sid)
@@ -310,7 +328,8 @@ class CPSATRoomOptimizer:
 
             # Case C: both s1 and s2 are to allocate
             elif cand_s1 and cand_s2:
-                # For small candidate sets (e.g. unit tests, bounded disruption repair),
+                common_rooms = set(cand_s1).intersection(set(cand_s2))
+                # For small candidate sets (e.g. unit tests, targeted disruption repair),
                 # evaluate exact pairwise savings directly via self.travel_service
                 if len(cand_s1) * len(cand_s2) <= 50:
                     for r1_id in cand_s1:
@@ -325,9 +344,15 @@ class CPSATRoomOptimizer:
                                 model.Add(p_var <= x[(s1_id, r1_id)])
                                 model.Add(p_var <= x[(s2_id, r2_id)])
                                 obj_terms.append(savings * p_var)
+                elif common_rooms:
+                    # Same-room continuity bonus (+80 points: 8.0 min savings * 10)
+                    for r_id in common_rooms:
+                        same_b = model.NewBoolVar(f"same_r_{s1_id}_{s2_id}_{r_id}")
+                        model.Add(same_b <= x[(s1_id, r_id)])
+                        model.Add(same_b <= x[(s2_id, r_id)])
+                        obj_terms.append(80 * same_b)
                 else:
-                    # Full schedule scale: cluster-level variables avoid variable explosion
-                    # 1. Same-cluster bonus (+50 points for 3-minute travel)
+                    # Different room types (e.g. classroom to lab): same-cluster bonus (+50 points: 5.0 min savings * 10)
                     for cluster in multi_room_clusters:
                         c_rooms = set(cluster)
                         c1 = [r_id for r_id in cand_s1 if r_id in c_rooms]
@@ -339,14 +364,6 @@ class CPSATRoomOptimizer:
                             model.Add(same_c <= u1)
                             model.Add(same_c <= u2)
                             obj_terms.append(50 * same_c)
-
-                    # 2. Same-room bonus (+30 points additional for 0-minute travel -> total 80 points)
-                    common_rooms = set(cand_s1).intersection(set(cand_s2))
-                    for r_id in common_rooms:
-                        same_b = model.NewBoolVar(f"same_r_{s1_id}_{s2_id}_{r_id}")
-                        model.Add(same_b <= x[(s1_id, r_id)])
-                        model.Add(same_b <= x[(s2_id, r_id)])
-                        obj_terms.append(30 * same_b)
 
         # (c) Specialized room misuse penalty (penalize regular classes placed in labs)
         for s in sessions_to_allocate:
@@ -360,18 +377,21 @@ class CPSATRoomOptimizer:
         # (d) Reassignment penalty (for bounded disruption repair, prefer staying in original room)
         for s_id, orig_r_id in target_reassignments.items():
             if (s_id, orig_r_id) in x:
-                # Bonus for keeping original room
                 obj_terms.append(reassignment_penalty * x[(s_id, orig_r_id)])
 
-        model.Maximize(sum(obj_terms))
+        if obj_terms:
+            model.Maximize(sum(obj_terms))
 
         # 5. Solve CP-SAT model
+        model_build_time = time.perf_counter() - start_time
+
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = time_limit_seconds
         solver.parameters.num_search_workers = 4
 
         status = solver.Solve(model)
-        solve_duration = time.perf_counter() - start_time
+        solver_wall_time = solver.WallTime()
+        total_duration = time.perf_counter() - start_time
 
         working_assignments: Dict[str, str] = dict(pre_reserved_assignments)
         unassigned_reasons: Dict[str, str] = {}
@@ -408,7 +428,9 @@ class CPSATRoomOptimizer:
             metadata={
                 "allocator": "CPSATRoomOptimizer",
                 "solver_status": status_str,
-                "solver_time_seconds": round(solve_duration, 3),
+                "solver_wall_time_seconds": round(solver_wall_time, 3),
+                "model_construction_time_seconds": round(model_build_time, 3),
+                "solver_time_seconds": round(total_duration, 3),
                 "total_target_sessions": len(sessions_to_allocate),
                 "assigned_count": len([s for s in sessions_to_allocate if s.session_id in working_assignments]),
                 "unassigned_count": len(unassigned_reasons),
@@ -426,7 +448,9 @@ class CPSATRoomOptimizer:
         pre_reserved_assignments: Optional[Dict[str, str]] = None,
         blocked_room_periods: Optional[Set[Tuple[str, str, int]]] = None,
         target_reassignments: Optional[Dict[str, str]] = None,
-        time_limit_seconds: float = 15.0,
+        time_limit_seconds: float = 10.0,
+        allow_slack: bool = False,
+        warm_start_hints: Optional[Dict[str, str]] = None,
     ) -> AllocationResult:
         """Solves allocation with CP-SAT and independently validates the outcome.
 
@@ -441,6 +465,8 @@ class CPSATRoomOptimizer:
             blocked_room_periods=blocked_room_periods,
             target_reassignments=target_reassignments,
             time_limit_seconds=time_limit_seconds,
+            allow_slack=allow_slack,
+            warm_start_hints=warm_start_hints,
         )
 
         validator = IndependentValidator(
