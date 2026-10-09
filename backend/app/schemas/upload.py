@@ -102,3 +102,54 @@ class UploadPreflightResponse(BaseModel):
     errors: List[RowValidationError] = Field(default_factory=list)
     warnings: List[RowValidationError] = Field(default_factory=list)
     sample_sessions: List[NormalizedUploadedSession] = Field(default_factory=list)
+
+
+class UploadAllocationRequest(BaseModel):
+    """Request payload to trigger joint allocation on a validated run."""
+    run_id: str = Field(..., description="Unique upload run identifier from preflight")
+    evaluation_mode: str = Field("synthetic", description="'synthetic' or 'factual'")
+    time_limit_seconds: float = Field(10.0, ge=1.0, le=10.0, description="Solver time limit (1.0 - 10.0s)")
+    allow_computing_lab_exception: bool = Field(False, description="Allow narrow computing lab exception if applicable")
+
+
+class UploadAllocationResponse(BaseModel):
+    """Result of joint multi-program room allocation and independent validation."""
+    run_id: str = Field(..., description="Upload run identifier")
+    academic_cycle: str = Field(..., description="'odd' or 'even'")
+    status: str = Field(..., description="'completed', 'infeasible', or 'fallback'")
+    selected_allocator: str = Field(..., description="Name of selected allocator candidate")
+    fallback_to_baseline: bool = Field(False, description="True if baseline was retained to protect against candidate regression")
+    total_sessions: int = Field(..., description="Total input sessions in the joint run")
+    assigned_count: int = Field(..., description="Number of sessions successfully placed in physical rooms")
+    unassigned_count: int = Field(..., description="Number of sessions left unassigned due to resource contention")
+    baseline_walking_time: float = Field(0.0, description="Greedy baseline walking time (minutes)")
+    optimized_walking_time: float = Field(0.0, description="Selected walking time (minutes)")
+    walking_time_reduction_minutes: float = Field(0.0, description="Minutes saved vs baseline")
+    walking_time_reduction_percentage: float = Field(0.0, description="Percentage saved vs baseline")
+    validation: Dict[str, Any] = Field(..., description="Independent validation summary dictionary")
+    infeasibility_diagnosis: Optional[str] = Field(None, description="Truthful diagnosis if allocation is incomplete or infeasible")
+    unassigned_session_ids: List[str] = Field(default_factory=list, description="IDs of sessions that could not be placed")
+    evaluation_mode: str = Field("synthetic", description="'synthetic' or 'factual'")
+    evaluation_mode_label: str = Field("SYNTHETIC DEMO PROFILE", description="Display label for evaluation mode")
+    assignments_count: int = Field(..., description="Count of mappings in active assignment dictionary")
+
+
+class UploadTimetableResponse(BaseModel):
+    """Timetable grid response rendered for a completed upload run."""
+    run_id: str
+    academic_cycle: str
+    allocation_source: str
+    allocation_status_label: str
+    is_fallback: bool
+    group_by: str
+    target_day: str
+    row_keys: List[str]
+    total_sessions_filtered: int
+    days: List[str]
+    periods: List[int]
+    grid: Dict[str, Dict[int, List[Dict[str, Any]]]]
+    evaluation_mode: str
+    evaluation_mode_label: str
+    programs: List[str]
+    cohorts: List[str]
+    files: List[str]

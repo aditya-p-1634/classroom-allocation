@@ -5,12 +5,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from backend.app.api import status, inventory, allocation, validation, simulation
+from backend.app.api import status, inventory, allocation, validation, simulation, upload
 
 app = FastAPI(
     title="ClassroomIQ — Smart Classroom Allocation REST API",
     description="REST API Bridge and Static Host for ClassroomIQ Frontend Integration (Phase P7).",
-    version="0.2.5",
+    version="0.2.6",
 )
 
 # CORS middleware for local frontend development and testing
@@ -28,6 +28,7 @@ app.include_router(inventory.router, prefix="/api")
 app.include_router(allocation.router, prefix="/api")
 app.include_router(validation.router, prefix="/api")
 app.include_router(simulation.router, prefix="/api")
+app.include_router(upload.router, prefix="/api")
 
 
 @app.get("/api/health")
