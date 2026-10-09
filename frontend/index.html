@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ClassroomIQ — Academic Scheduling & Optimization</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">🎓</div>
+        <div class="brand-text">
+          <h1>ClassroomIQ</h1>
+          <span>Smart Classroom Allocation</span>
+        </div>
+      </div>
+
+      <ul class="nav-menu">
+        <li class="nav-item active"><a href="#dashboard"><span>📊</span> Dashboard</a></li>
+        <li class="nav-item"><a href="#timetable"><span>📅</span> Timetable</a></li>
+        <li class="nav-item"><a href="#programs"><span>👥</span> Programs & Cohorts</a></li>
+        <li class="nav-item"><a href="#rooms"><span>🏫</span> Rooms & Facilities</a></li>
+        <li class="nav-item"><a href="#optimization"><span>📈</span> Optimization</a></li>
+        <li class="nav-item"><a href="#simulation"><span>⚠️</span> Disruption Simulation</a></li>
+        <li class="nav-item"><a href="#results"><span>📉</span> Results & Comparison</a></li>
+        <li class="nav-item"><a href="#validation"><span>🛡️</span> Validation Inspector</a></li>
+        <li class="nav-item"><a href="#data"><span>🗄️</span> Data Overview</a></li>
+        <li class="nav-item"><a href="#settings"><span>⚙️</span> Settings</a></li>
+      </ul>
+
+      <!-- Bottom Widget: Project Phase -->
+      <div class="sidebar-section">
+        <div class="sidebar-title">Project Phase (Backend)</div>
+        <ul class="audit-list">
+          <li class="audit-item"><span class="check-icon">✓</span> P4 Build Preparation</li>
+          <li class="audit-item"><span class="check-icon">✓</span> P5 Baseline Allocator</li>
+          <li class="audit-item"><span class="check-icon">✓</span> P6 Optimization <small style="color:#94a3b8; display:block; font-size:0.65rem;">Accepted • Document v0.2.3</small></li>
+          <li class="audit-item"><span class="check-icon" style="background:#3b82f6; color:white;">●</span> P7 Frontend Integration <small style="color:#60a5fa; display:block; font-size:0.65rem;">Authorized</small></li>
+          <li class="audit-item"><span class="pending-icon"></span> P8 Benchmarking</li>
+          <li class="audit-item"><span class="pending-icon"></span> P9 Demo & Presentation</li>
+        </ul>
+      </div>
+
+      <!-- Bottom Widget: Data Trust & Governance -->
+      <div class="sidebar-section">
+        <div class="sidebar-title">Data Trust & Governance</div>
+        <ul class="audit-list">
+          <li class="audit-item"><span class="check-icon">✓</span> 7 CSV datasets reviewed</li>
+          <li class="audit-item"><span class="check-icon">✓</span> Source values preserved</li>
+          <li class="audit-item"><span class="check-icon">✓</span> Unknowns remain unknown</li>
+          <li class="audit-item"><span class="check-icon">✓</span> Travel time is a proxy</li>
+          <li class="audit-item"><span class="check-icon">✓</span> Room capacity incomplete</li>
+          <li class="audit-item"><span class="check-icon">✓</span> Facility status unknown</li>
+        </ul>
+        <div style="font-size:0.68rem; color:#64748b; margin-top:0.5rem; text-align:center;">Source facts • demo assumptions</div>
+      </div>
+    </aside>
+
+    <!-- Main Content View -->
+    <main class="main-content">
+      <!-- Top Header & Primary Controls -->
+      <header class="top-header">
+        <div class="header-title">
+          <h2>Academic Scheduling & Optimization</h2>
+          <p>Allocate rooms, compare feasible candidates, and recover from disruptions.</p>
+        </div>
+        <div class="header-controls">
+          <span class="control-badge">Academic Year: 2026</span>
+          <div class="select-wrapper">
+            <select id="cycle-select" aria-label="Select academic cycle">
+              <option value="odd" selected>Odd Cycle (680 sessions)</option>
+              <option value="even">Even Cycle (570 sessions)</option>
+            </select>
+          </div>
+          <button id="btn-run-optimize" class="btn-primary">
+            <span>▶ Run Optimization</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- KPI Metrics Cards Row (Exactly matching Image 2) -->
+      <section class="kpi-row" aria-label="Key Performance Indicators">
+        <!-- Card 1: Total Sessions -->
+        <div class="kpi-card">
+          <div>
+            <div class="kpi-header">Total Sessions</div>
+            <div id="kpi-sessions-val" class="kpi-value">680</div>
+            <div id="kpi-sessions-sub" class="kpi-subtext">Odd cycle selected ↔ Even cycle: 570</div>
+          </div>
+          <span class="kpi-badge verified">✓ Verified (sessions.csv)</span>
+        </div>
+
+        <!-- Card 2: Program Types -->
+        <div class="kpi-card">
+          <div>
+            <div class="kpi-header">Program Types</div>
+            <div id="kpi-programs-val" class="kpi-value">5</div>
+            <div class="kpi-subtext">Distinct source values</div>
+          </div>
+          <span class="kpi-badge verified">✓ Source: sessions.csv</span>
+        </div>
+
+        <!-- Card 3: Student Cohorts -->
+        <div class="kpi-card">
+          <div>
+            <div class="kpi-header">Cohort IDs</div>
+            <div id="kpi-cohorts-val" class="kpi-value">45</div>
+            <div class="kpi-subtext">Unique cohort identifiers</div>
+          </div>
+          <span class="kpi-badge verified">✓ Source: sessions.csv</span>
+        </div>
+
+        <!-- Card 4: Room Inventory -->
+        <div class="kpi-card">
+          <div>
+            <div class="kpi-header">Room Inventory</div>
+            <div id="kpi-rooms-val" class="kpi-value">86</div>
+            <div class="kpi-subtext">Room records in rooms.csv</div>
+          </div>
+          <span class="kpi-badge verified">✓ Inventory ≠ availability</span>
+        </div>
+
+        <!-- Card 5: Room Availability -->
+        <div class="kpi-card">
+          <div>
+            <div class="kpi-header">Room Availability</div>
+            <div id="kpi-avail-val" class="kpi-value unknown">Unknown</div>
+            <div class="kpi-subtext">Insufficient evidence</div>
+          </div>
+          <span class="kpi-badge unknown">⚠️ Enrollment/capacity incomplete</span>
+        </div>
+      </section>
+
+      <!-- Timetable Section Card -->
+      <section class="card" id="timetable">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h3>Timetable View</h3>
+            <span class="illustrative-pill">Illustrative Layout • Not Allocations</span>
+          </div>
+          <div class="tab-group">
+            <button class="tab-btn active" data-tab="timetable">Timetable View</button>
+            <button class="tab-btn" data-tab="room">Room View</button>
+            <button class="tab-btn" data-tab="cohort">Cohort View</button>
+            <button class="tab-btn" data-tab="program">Program View</button>
+          </div>
+        </div>
+
+        <div class="card-filter-row">
+          <span style="color:#64748b; font-size:0.75rem;">Live session and room cells are populated from the selected source cycle in the application.</span>
+          <div class="filter-controls">
+            <label for="filter-program" class="sr-only">Program:</label>
+            <select id="filter-program" class="filter-select">
+              <option value="">All Programs</option>
+            </select>
+            <label for="filter-cohort" class="sr-only">Cohort:</label>
+            <select id="filter-cohort" class="filter-select">
+              <option value="">All Cohorts</option>
+            </select>
+            <label for="filter-day" class="sr-only">Day:</label>
+            <select id="filter-day" class="filter-select">
+              <option value="Monday">Monday</option>
+              <option value="Tuesday">Tuesday</option>
+              <option value="Wednesday">Wednesday</option>
+              <option value="Thursday">Thursday</option>
+              <option value="Friday">Friday</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="timetable-scroll">
+          <table class="timetable-table">
+            <thead>
+              <tr>
+                <th class="row-header">Cohort / Track</th>
+                <th>08:00<br><span style="font-size:0.65rem;">Period 1</span></th>
+                <th>09:00<br><span style="font-size:0.65rem;">Period 2</span></th>
+                <th>10:00<br><span style="font-size:0.65rem;">Period 3</span></th>
+                <th>11:00<br><span style="font-size:0.65rem;">Period 4</span></th>
+                <th>12:00<br><span style="font-size:0.65rem;">Period 5</span></th>
+                <th>14:00<br><span style="font-size:0.65rem;">Period 6</span></th>
+                <th>15:00<br><span style="font-size:0.65rem;">Period 7</span></th>
+                <th>16:00<br><span style="font-size:0.65rem;">Period 8</span></th>
+                <th>17:00<br><span style="font-size:0.65rem;">Period 9</span></th>
+              </tr>
+            </thead>
+            <tbody id="timetable-tbody">
+              <!-- Dynamically populated from backend API -->
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card-footer">
+          Source facts: 1,250 occurrences total • 680 odd-cycle • 570 even-cycle • 10 source assignments have strict room-type compatibility flags
+        </div>
+      </section>
+
+      <!-- Lower Split 3-Card Grid (Exactly matching Image 2) -->
+      <section class="lower-grid">
+        <!-- Card 1: Travel-Time Proxy Comparison -->
+        <div class="subcard">
+          <div>
+            <div class="subcard-title">Travel-Time Proxy Comparison</div>
+            <div class="subcard-subtext">Synthetic location proxy • not measured walking time</div>
+
+            <div class="chart-container">
+              <!-- Even cycle comparison -->
+              <div class="chart-cycle-block">
+                <div class="chart-cycle-label">
+                  <span>Even cycle • 570 sessions</span>
+                  <span class="chart-pill success">EVEN: 699 min proxy reduction (60.52%)</span>
+                </div>
+                <div class="bar-track" title="Baseline: 1,155 min">
+                  <div id="bar-even-base" class="bar-fill baseline" style="width: 100%;">Baseline: 1,155 min</div>
+                </div>
+                <div class="bar-track" title="Optimized: 456 min">
+                  <div id="bar-even-opt" class="bar-fill improved" style="width: 39.5%;">Optimized: 456 min</div>
+                </div>
+              </div>
+
+              <!-- Odd cycle comparison -->
+              <div class="chart-cycle-block" style="margin-top:0.5rem;">
+                <div class="chart-cycle-label">
+                  <span>Odd cycle • 680 sessions</span>
+                  <span class="chart-pill danger">ODD: +38 min candidate rejected</span>
+                </div>
+                <div class="bar-track" title="Baseline: 1,248 min">
+                  <div id="bar-odd-base" class="bar-fill baseline" style="width: 96.5%;">Baseline (Kept): 1,248 min</div>
+                </div>
+                <div class="bar-track" title="Candidate: 1,286 min">
+                  <div id="bar-odd-cand" class="bar-fill rejected" style="width: 100%;">Solver Candidate (Raw): 1,286 min</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="font-size:0.68rem; color:#64748b; margin-top:0.75rem;">
+            Legend: <span style="color:#3b82f6; font-weight:700;">■ Baseline</span> &nbsp;
+            <span style="color:#10b981; font-weight:700;">■ Selected result</span> &nbsp;
+            <span style="color:#ef4444; font-weight:700;">■ Not selected</span>
+          </div>
+        </div>
+
+        <!-- Card 2: Results Summary -->
+        <div class="subcard">
+          <div>
+            <div class="subcard-title">Results Summary</div>
+            <div class="subcard-subtext">Solver convergence & independent verification status</div>
+
+            <!-- Even Cycle Summary Box -->
+            <div class="summary-cycle-box even-cycle">
+              <div class="summary-box-header">
+                <span class="summary-box-title">EVEN CYCLE • 570 SESSIONS</span>
+                <span class="badge-tag improved">Improved</span>
+              </div>
+              <div class="summary-metric-row"><span>Baseline proxy:</span> <span class="summary-metric-val">1,155 min</span></div>
+              <div class="summary-metric-row"><span>Selected proxy:</span> <span class="summary-metric-val">456 min</span></div>
+              <div class="summary-metric-row"><span>Reduction:</span> <span class="summary-metric-val" style="color:#15803d;">699 min • 60.52%</span></div>
+              <div class="summary-metric-row"><span>Same-room continuations:</span> <span class="summary-metric-val">298 vs 285 baseline</span></div>
+              <div class="summary-metric-row"><span>Pipeline status:</span> <span class="summary-metric-val" style="color:#15803d;">FEASIBLE (VALID_COMPLETE)</span></div>
+            </div>
+
+            <!-- Odd Cycle Summary Box -->
+            <div class="summary-cycle-box odd-cycle">
+              <div class="summary-box-header">
+                <span class="summary-box-title">ODD CYCLE • 680 SESSIONS</span>
+                <span class="badge-tag baseline-kept">Baseline kept</span>
+              </div>
+              <div class="summary-metric-row"><span>Baseline proxy:</span> <span class="summary-metric-val">1,248 min</span></div>
+              <div class="summary-metric-row"><span>Raw solver candidate:</span> <span class="summary-metric-val" style="color:#b91c1c;">1,286 min</span></div>
+              <div class="summary-metric-row"><span>Candidate change:</span> <span class="summary-metric-val" style="color:#b91c1c;">+38 min • +3.04%</span></div>
+              <div class="summary-metric-row"><span>Selected allocator:</span> <span class="summary-metric-val">Greedy baseline</span></div>
+              <div class="summary-metric-row"><span>Pipeline status:</span> <span class="summary-metric-val" style="color:#b45309;">FEASIBLE (VALID_COMPLETE)</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3: Disruption Simulation -->
+        <div class="subcard">
+          <div>
+            <div class="subcard-title">Disruption Simulation</div>
+            <div class="subcard-subtext">Dynamic recovery sandbox & bounded repair</div>
+
+            <div style="margin-bottom:0.65rem;">
+              <label for="event-select" class="sr-only">Disruption Event:</label>
+              <select id="event-select" class="filter-select" style="width:100%; font-weight:600;">
+                <option value="EVT-DEMO-001">EVT-DEMO-001 • M601 LAB CLOSURE</option>
+              </select>
+            </div>
+
+            <div class="disruption-badge">EVT-DEMO-001 • M601 LAB CLOSURE</div>
+
+            <div id="disruption-scenario-details" class="disruption-details">
+              <div class="disruption-detail-row">
+                <span>Affected room:</span>
+                <strong>M601 (laboratory)</strong>
+              </div>
+              <div class="disruption-detail-row">
+                <span>Repair window:</span>
+                <span>Full cycle</span>
+              </div>
+              <div class="disruption-detail-row">
+                <span>Concurrent lab sessions:</span>
+                <strong>20</strong>
+              </div>
+              <div class="disruption-detail-row">
+                <span>Available lab rooms:</span>
+                <strong>19</strong>
+              </div>
+            </div>
+
+            <div id="disruption-outcome-box" class="disruption-outcome-box">
+              <div class="disruption-outcome-header">INFEASIBLE REPAIR</div>
+              <div class="disruption-outcome-desc">
+                <strong>Why it fails:</strong> 20 concurrent lab sessions require 20 compatible lab rooms; only 19 are available campus-wide. The system rolls back safely.
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
+            <button id="btn-run-simulation" class="btn-primary" style="flex:1; padding:0.4rem; font-size:0.75rem;">Trigger Disruption</button>
+            <button id="btn-rollback" class="btn-rollback" style="flex:1; margin-top:0;">Atomic Rollback</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Independent Validation Inspector Section -->
+      <section class="card" id="validation" style="margin-top: 1.25rem;">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h3>Independent Validation Inspector</h3>
+            <span class="illustrative-pill" style="background:#e0f2fe; color:#0369a1; border-color:#bae6fd;">Independent Auditor • Hard Constraint Verification</span>
+          </div>
+          <div>
+            <button id="btn-run-audit" class="btn-primary" style="padding: 0.4rem 0.85rem; font-size: 0.8rem;">
+              <span>🛡️ Run Independent Audit</span>
+            </button>
+          </div>
+        </div>
+        <div style="padding: 1rem 1.25rem;">
+          <div id="audit-status-banner" style="display: flex; align-items: center; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem;">
+            <div>
+              <div style="font-weight: 600; font-size: 0.85rem; color: #0f172a;">Audit Target: <span id="audit-target-label">Selected Cycle Allocation</span></div>
+              <div style="font-size: 0.75rem; color: #64748b;">Evaluated independently against Document 05 hard constraints & factual data profile</div>
+            </div>
+            <div id="audit-badge" class="badge-tag improved" style="font-size: 0.75rem; padding: 0.3rem 0.75rem;">READY TO AUDIT</div>
+          </div>
+
+          <!-- 5 Constraint Breakdown Cards -->
+          <div class="audit-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-bottom: 1rem;">
+            <div class="kpi-card" style="padding: 0.75rem;">
+              <div class="kpi-header" style="font-size: 0.72rem;">1. Room Exclusivity</div>
+              <div id="audit-exclusivity" class="kpi-value" style="font-size: 1.2rem; color: #15803d;">0 Violations</div>
+              <div class="kpi-subtext">No double bookings</div>
+            </div>
+            <div class="kpi-card" style="padding: 0.75rem;">
+              <div class="kpi-header" style="font-size: 0.72rem;">2. Cohort Exclusivity</div>
+              <div id="audit-cohort" class="kpi-value" style="font-size: 1.2rem; color: #15803d;">0 Violations</div>
+              <div class="kpi-subtext">No simultaneous classes</div>
+            </div>
+            <div class="kpi-card" style="padding: 0.75rem;">
+              <div class="kpi-header" style="font-size: 0.72rem;">3. Room Capabilities</div>
+              <div id="audit-capability" class="kpi-value" style="font-size: 1.2rem; color: #15803d;">100% Compatible</div>
+              <div class="kpi-subtext">Lab/lecture type matched</div>
+            </div>
+            <div class="kpi-card" style="padding: 0.75rem;">
+              <div class="kpi-header" style="font-size: 0.72rem;">4. Confirmed Availability</div>
+              <div id="audit-availability" class="kpi-value" style="font-size: 1.2rem; color: #15803d;">0 Violations</div>
+              <div class="kpi-subtext">Known conflicts rejected</div>
+            </div>
+            <div class="kpi-card" style="padding: 0.75rem;">
+              <div class="kpi-header" style="font-size: 0.72rem;">5. Physical Room Capacity</div>
+              <div id="audit-capacity" class="kpi-value unknown" style="font-size: 1.2rem;">Unknown</div>
+              <div class="kpi-subtext">100% Insufficient Evidence</div>
+            </div>
+          </div>
+
+          <!-- Sample Audit Findings Table -->
+          <div style="margin-top: 0.75rem;">
+            <div style="font-weight: 600; font-size: 0.8rem; color: #334155; margin-bottom: 0.5rem;">Sample Independent Audit Log</div>
+            <div style="max-height: 180px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 0.75rem; text-align: left;">
+                <thead style="background: #f1f5f9; position: sticky; top: 0;">
+                  <tr>
+                    <th style="padding: 0.4rem 0.6rem; border-bottom: 1px solid #e2e8f0;">Constraint</th>
+                    <th style="padding: 0.4rem 0.6rem; border-bottom: 1px solid #e2e8f0;">Status</th>
+                    <th style="padding: 0.4rem 0.6rem; border-bottom: 1px solid #e2e8f0;">Session ID</th>
+                    <th style="padding: 0.4rem 0.6rem; border-bottom: 1px solid #e2e8f0;">Room</th>
+                    <th style="padding: 0.4rem 0.6rem; border-bottom: 1px solid #e2e8f0;">Details</th>
+                  </tr>
+                </thead>
+                <tbody id="audit-log-tbody">
+                  <tr>
+                    <td colspan="5" style="padding: 0.75rem; text-align: center; color: #94a3b8;">Click 'Run Independent Audit' to verify all constraints with IndependentValidator.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="card-footer">
+          Independent verification guarantee: Evaluated by isolated IndependentValidator module without relying on optimizer solver weights.
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Session Inspection Modal -->
+  <div id="modal-backdrop" class="modal-backdrop">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h4 style="font-family: var(--font-display); font-size: 1.1rem; color: #0f172a;">Session Occurrence Details</h4>
+        <button id="modal-close" class="modal-close">&times;</button>
+      </div>
+      <div id="modal-details">
+        <!-- Populated on click -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" style="position:fixed; bottom:1.5rem; right:1.5rem; display:flex; flex-direction:column; gap:0.5rem; z-index:200;"></div>
+
+  <!-- App Bootstrap -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
