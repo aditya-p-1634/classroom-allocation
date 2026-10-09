@@ -34,7 +34,7 @@ app.include_router(upload.router, prefix="/api")
 @app.get("/api/health")
 def health_check():
     """Lightweight health check endpoint."""
-    return {"status": "ok", "app": "ClassroomIQ", "version": "0.2.5"}
+    return {"status": "ok", "app": "ClassroomIQ", "version": "0.2.6"}
 
 
 # Mount static frontend assets if frontend directory exists
