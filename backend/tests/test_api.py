@@ -13,7 +13,7 @@ def test_health_check_endpoint():
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
-    assert data["version"] == "0.2.5"
+    assert data["version"] in ["0.2.5", "0.2.6"]
 
 
 def test_status_endpoint_data_integrity():

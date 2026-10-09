@@ -14,6 +14,7 @@ from backend.app.schemas.upload import (
     NormalizedUploadedSession,
 )
 from backend.app.services.upload_service import UploadService
+from backend.app.services.export_service import ExportService, CSV_COLUMNS
 
 
 SAMPLE_CYBER_CSV = """program,cohort_id,course,academic_cycle,day,start_period,end_period,required_room_type
@@ -344,3 +345,299 @@ def test_upload_api_factual_mode_preserves_insufficient_evidence():
     assert data["evaluation_mode_label"] == "FACTUAL MODE"
     evidence_lims = data["validation"]["evidence_limitations"]
     assert any("Factual Mode: Physical room operational availability records are unverified" in lim for lim in evidence_lims)
+
+
+def test_export_service_combined_and_per_program_and_file_csvs():
+    """Unit test: verifies ExportService correctly produces combined, per-program, and per-file CSVs."""
+    import csv
+    import io
+    from backend.app.services.export_service import ExportService, CSV_COLUMNS
+    from backend.app.services.joint_allocation_service import JointAllocationService
+    from backend.app.schemas.upload import UploadAllocationRequest
+
+    service = UploadService()
+    req = UploadPreflightRequest(
+        academic_cycle="even",
+        files=[
+            RawFilePayload(filename="cyber.csv", content=SAMPLE_CYBER_CSV),
+            RawFilePayload(filename="software.csv", content=SAMPLE_SOFTWARE_CSV),
+        ],
+    )
+    resp = service.process_preflight(req)
+    run_id = resp.run_id
+
+    # Allocate
+    joint_alloc = JointAllocationService()
+    alloc_resp = joint_alloc.run_joint_allocation(UploadAllocationRequest(run_id=run_id, evaluation_mode="synthetic"))
+    assert alloc_resp.status in ["completed", "fallback"]
+
+    context = UploadService.get_run_context(run_id)
+    assert context is not None
+
+    # 1. Combined CSV
+    combined_csv = ExportService.generate_combined_csv(context)
+    reader = csv.DictReader(io.StringIO(combined_csv))
+    rows = list(reader)
+    assert reader.fieldnames == CSV_COLUMNS
+    assert len(rows) == 5
+
+    # Check provenance and allocation fields
+    for row in rows:
+        assert row["session_id"].startswith("UPL-")
+        assert row["source_file"] in ["cyber.csv", "software.csv"]
+        assert int(row["source_row"]) >= 2
+        assert row["program"] in ["M.Sc. Cyber Security", "M.Sc. Software Systems"]
+        assert row["allocation_status"] == "allocated"
+        assert row["assigned_room_id"] != ""
+
+    # 2. Per-program CSV
+    cyber_csv = ExportService.generate_program_csv(context, "M.Sc. Cyber Security")
+    cyber_rows = list(csv.DictReader(io.StringIO(cyber_csv)))
+    assert len(cyber_rows) == 3
+    assert all(r["program"] == "M.Sc. Cyber Security" for r in cyber_rows)
+
+    soft_csv = ExportService.generate_program_csv(context, "M.Sc. Software Systems")
+    soft_rows = list(csv.DictReader(io.StringIO(soft_csv)))
+    assert len(soft_rows) == 2
+    assert all(r["program"] == "M.Sc. Software Systems" for r in soft_rows)
+
+    # 3. Per-source-file CSV
+    file_csv = ExportService.generate_source_file_csv(context, "cyber.csv")
+    file_rows = list(csv.DictReader(io.StringIO(file_csv)))
+    assert len(file_rows) == 3
+    assert all(r["source_file"] == "cyber.csv" for r in file_rows)
+
+
+def test_export_service_zip_archive_integrity():
+    """Unit test: verifies ExportService generates a valid ZIP archive with all members and no zip-slip."""
+    import io
+    import zipfile
+    from backend.app.services.export_service import ExportService
+    from backend.app.services.joint_allocation_service import JointAllocationService
+    from backend.app.schemas.upload import UploadAllocationRequest
+
+    service = UploadService()
+    req = UploadPreflightRequest(
+        academic_cycle="even",
+        files=[
+            RawFilePayload(filename="cyber.csv", content=SAMPLE_CYBER_CSV),
+            RawFilePayload(filename="software.csv", content=SAMPLE_SOFTWARE_CSV),
+        ],
+    )
+    resp = service.process_preflight(req)
+    run_id = resp.run_id
+
+    joint_alloc = JointAllocationService()
+    joint_alloc.run_joint_allocation(UploadAllocationRequest(run_id=run_id, evaluation_mode="synthetic"))
+    context = UploadService.get_run_context(run_id)
+
+    zip_bytes = ExportService.generate_zip_archive(context)
+    assert len(zip_bytes) > 0
+
+    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+        # Check integrity
+        assert zf.testzip() is None
+        names = zf.namelist()
+
+        # Check members
+        assert any(n.startswith("ClassroomIQ_Combined_Allocation_") and n.endswith(".csv") for n in names)
+        assert any(n.startswith("ClassroomIQ_Audit_Certificate_") and n.endswith(".txt") for n in names)
+        assert any(n.startswith("programs/") and "Cyber" in n for n in names)
+        assert any(n.startswith("programs/") and "Software" in n for n in names)
+        assert any(n.startswith("source_files/") and "cyber" in n for n in names)
+        assert any(n.startswith("source_files/") and "software" in n for n in names)
+
+        # Security check: no path traversal
+        for n in names:
+            assert not n.startswith("/")
+            assert not n.startswith("\\")
+            assert ".." not in n
+
+
+def test_export_service_audit_certificate_contents():
+    """Unit test: verifies truthful audit certificate records evaluation mode, metrics, and validation."""
+    from backend.app.services.export_service import ExportService
+    from backend.app.services.joint_allocation_service import JointAllocationService
+    from backend.app.schemas.upload import UploadAllocationRequest
+
+    service = UploadService()
+    req = UploadPreflightRequest(
+        academic_cycle="even",
+        files=[
+            RawFilePayload(filename="cyber.csv", content=SAMPLE_CYBER_CSV),
+        ],
+    )
+    resp = service.process_preflight(req)
+    run_id = resp.run_id
+
+    joint_alloc = JointAllocationService()
+    joint_alloc.run_joint_allocation(UploadAllocationRequest(run_id=run_id, evaluation_mode="synthetic"))
+    context = UploadService.get_run_context(run_id)
+
+    cert_text = ExportService.generate_audit_certificate(context)
+
+    # Check key content blocks
+    assert "CLASSROOMIQ JOINT ALLOCATION AUDIT CERTIFICATE" in cert_text
+    assert f"Run Identifier:          {run_id}" in cert_text
+    assert "Academic Cycle:          EVEN" in cert_text
+    assert "Evaluation Mode:         SYNTHETIC DEMO PROFILE (synthetic)" in cert_text
+    assert "Total Uploaded Sessions: 3" in cert_text
+    assert "Successfully Allocated:  3 (100.0%)" in cert_text
+    assert "Unassigned Sessions:     0" in cert_text
+    assert "Hard Constraint Integrity:    PASS" in cert_text
+    assert "STATUS: FULLY FEASIBLE ALLOCATION" in cert_text
+
+
+def test_export_api_combined_csv_and_zip_endpoints():
+    """Integration test: verifies GET /api/upload/export/{run_id}?format=csv and ?format=zip."""
+    import io
+    import csv
+    import zipfile
+    from fastapi.testclient import TestClient
+    from backend.app.main import app
+
+    client = TestClient(app)
+
+    # 1. Preflight & Allocate
+    resp_pref = client.post("/api/upload/preflight", json={
+        "academic_cycle": "even",
+        "files": [
+            {"filename": "cyber.csv", "content": SAMPLE_CYBER_CSV},
+            {"filename": "software.csv", "content": SAMPLE_SOFTWARE_CSV},
+        ],
+    })
+    run_id = resp_pref.json()["run_id"]
+
+    resp_alloc = client.post("/api/upload/allocate", json={
+        "run_id": run_id,
+        "evaluation_mode": "synthetic",
+    })
+    assert resp_alloc.status_code == 200
+
+    # 2. Export CSV
+    resp_csv = client.get(f"/api/upload/export/{run_id}?format=csv")
+    assert resp_csv.status_code == 200
+    assert "text/csv" in resp_csv.headers["content-type"]
+    assert f"ClassroomIQ_Combined_Allocation_{run_id}.csv" in resp_csv.headers["content-disposition"]
+    csv_rows = list(csv.DictReader(io.StringIO(resp_csv.text)))
+    assert len(csv_rows) == 5
+
+    # 3. Export ZIP
+    resp_zip = client.get(f"/api/upload/export/{run_id}?format=zip")
+    assert resp_zip.status_code == 200
+    assert "application/zip" in resp_zip.headers["content-type"]
+    assert f"ClassroomIQ_Allocation_{run_id}.zip" in resp_zip.headers["content-disposition"]
+
+    with zipfile.ZipFile(io.BytesIO(resp_zip.content), "r") as zf:
+        assert zf.testzip() is None
+        names = zf.namelist()
+        assert len(names) >= 4  # combined, audit, at least 1 program, at least 1 source file
+
+
+def test_export_api_error_handling_and_validations():
+    """Integration test: verifies 404 for unknown run, 400 for unallocated run, and 400 for invalid format."""
+    from fastapi.testclient import TestClient
+    from backend.app.main import app
+
+    client = TestClient(app)
+
+    # 1. Unknown run_id
+    resp_404 = client.get("/api/upload/export/NONEXISTENT_RUN?format=csv")
+    assert resp_404.status_code == 404
+
+    # 2. Valid run_id but unallocated
+    resp_pref = client.post("/api/upload/preflight", json={
+        "files": [{"filename": "cyber.csv", "content": SAMPLE_CYBER_CSV}],
+    })
+    unalloc_run_id = resp_pref.json()["run_id"]
+
+    resp_unalloc = client.get(f"/api/upload/export/{unalloc_run_id}?format=csv")
+    assert resp_unalloc.status_code == 400
+    assert "has not been executed" in resp_unalloc.json()["detail"]
+
+    # 3. Allocate, then test invalid format
+    client.post("/api/upload/allocate", json={"run_id": unalloc_run_id})
+    resp_bad_fmt = client.get(f"/api/upload/export/{unalloc_run_id}?format=pdf")
+    assert resp_bad_fmt.status_code == 400
+    assert "Unsupported export format 'pdf'" in resp_bad_fmt.json()["detail"]
+
+
+def test_export_truthfully_reports_infeasible_unassigned_sessions():
+    """Integration test: verifies export reflects unassigned sessions and truthful warning in infeasible runs."""
+    import csv
+    import io
+    from fastapi.testclient import TestClient
+    from backend.app.main import app
+
+    client = TestClient(app)
+
+    # 25 concurrent labs on Monday period 1
+    rows = ["program,cohort_id,course,academic_cycle,day,start_period,end_period,required_room_type"]
+    for i in range(1, 26):
+        rows.append(f"Program_{i},cohort_{i},Lab_{i},even,Monday,1,2,laboratory")
+    heavy_csv = "\n".join(rows)
+
+    resp_pref = client.post("/api/upload/preflight", json={
+        "files": [{"filename": "heavy.csv", "content": heavy_csv}]
+    })
+    run_id = resp_pref.json()["run_id"]
+    client.post("/api/upload/allocate", json={"run_id": run_id, "evaluation_mode": "synthetic"})
+
+    # Export CSV
+    resp_csv = client.get(f"/api/upload/export/{run_id}?format=csv")
+    assert resp_csv.status_code == 200
+    csv_rows = list(csv.DictReader(io.StringIO(resp_csv.text)))
+    assert len(csv_rows) == 25
+
+    unassigned_rows = [r for r in csv_rows if r["allocation_status"] == "unallocated"]
+    assigned_rows = [r for r in csv_rows if r["allocation_status"] == "allocated"]
+
+    assert len(unassigned_rows) >= 5
+    assert len(assigned_rows) <= 20
+    for r in unassigned_rows:
+        assert r["assigned_room_id"] == ""
+
+    # Export ZIP and check audit certificate
+    context = UploadService.get_run_context(run_id)
+    cert = ExportService.generate_audit_certificate(context)
+
+    assert "CAUTION: This allocation is NOT fully successful" in cert
+    assert "PARTIAL / INFEASIBLE" in cert
+    assert "Affected Unassigned Sessions:" in cert
+    assert "Physical room capacity exceeded" in cert
+
+
+def test_export_run_isolation():
+    """Integration test: verifies that two runs are completely isolated in their exports."""
+    import csv
+    import io
+    from fastapi.testclient import TestClient
+    from backend.app.main import app
+
+    client = TestClient(app)
+
+    # Run A: Cyber only
+    resp_a = client.post("/api/upload/preflight", json={
+        "files": [{"filename": "cyber.csv", "content": SAMPLE_CYBER_CSV}],
+    })
+    run_a = resp_a.json()["run_id"]
+    client.post("/api/upload/allocate", json={"run_id": run_a, "evaluation_mode": "synthetic"})
+
+    # Run B: Software only
+    resp_b = client.post("/api/upload/preflight", json={
+        "files": [{"filename": "software.csv", "content": SAMPLE_SOFTWARE_CSV}],
+    })
+    run_b = resp_b.json()["run_id"]
+    client.post("/api/upload/allocate", json={"run_id": run_b, "evaluation_mode": "synthetic"})
+
+    # Fetch export for Run A
+    csv_a = client.get(f"/api/upload/export/{run_a}?format=csv").text
+    rows_a = list(csv.DictReader(io.StringIO(csv_a)))
+    assert len(rows_a) == 3
+    assert all(r["program"] == "M.Sc. Cyber Security" for r in rows_a)
+
+    # Fetch export for Run B
+    csv_b = client.get(f"/api/upload/export/{run_b}?format=csv").text
+    rows_b = list(csv.DictReader(io.StringIO(csv_b)))
+    assert len(rows_b) == 2
+    assert all(r["program"] == "M.Sc. Software Systems" for r in rows_b)

@@ -5,7 +5,7 @@ Provides preflight inspection, joint CP-SAT optimization, and timetable queries.
 """
 
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from backend.app.schemas.upload import (
     UploadPreflightRequest,
@@ -16,6 +16,7 @@ from backend.app.schemas.upload import (
 )
 from backend.app.services.upload_service import UploadService
 from backend.app.services.joint_allocation_service import JointAllocationService
+from backend.app.services.export_service import ExportService
 
 router = APIRouter(prefix="/upload", tags=["Upload & Allocate"])
 
@@ -85,4 +86,50 @@ def get_upload_timetable(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate upload timetable: {str(e)}",
+        )
+
+
+@router.get("/export/{run_id}")
+def export_upload_results(
+    run_id: str,
+    format: str = Query("csv", description="Export format: 'csv' or 'zip'"),
+):
+    """Downloads allocation results as a combined CSV or self-contained ZIP archive."""
+    context = UploadService.get_run_context(run_id)
+    if not context:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Upload run ID '{run_id}' not found or session expired.",
+        )
+    if context.allocation_result is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Joint allocation has not been executed for run ID '{run_id}'. Please run /api/upload/allocate first.",
+        )
+
+    fmt = format.strip().lower()
+    if fmt == "csv":
+        csv_content = ExportService.generate_combined_csv(context)
+        filename = f"ClassroomIQ_Combined_Allocation_{run_id}.csv"
+        return Response(
+            content=csv_content,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            },
+        )
+    elif fmt == "zip":
+        zip_bytes = ExportService.generate_zip_archive(context)
+        filename = f"ClassroomIQ_Allocation_{run_id}.zip"
+        return Response(
+            content=zip_bytes,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            },
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported export format '{format}'. Supported formats are 'csv' and 'zip'.",
         )
