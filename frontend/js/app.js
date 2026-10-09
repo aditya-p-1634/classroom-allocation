@@ -24,12 +24,32 @@ class ClassroomIQApp {
     this.systemStatus = null;
     this.lastComparisonResult = null;
     this.activeRoomDrawer = null;
+
+    // Upload & Allocate Workflow State (Milestone 4)
+    this.uploadState = {
+      files: [], // Array of { filename, size, content, rowCount, headers, rows }
+      academicCycle: 'even',
+      columnMappings: {},
+      confirmedAmbiguousMappings: {},
+      preflightResponse: null,
+      allocationResponse: null,
+      timetableResponse: null,
+      evaluationMode: 'synthetic',
+      timeLimitSeconds: 5.0,
+      allowComputingLabException: false,
+      activeTimetableDay: 'Monday',
+      timetableGroupBy: 'cohort',
+      filterProgram: '',
+      filterCohort: '',
+      selectedPreviewFile: null,
+    };
   }
 
   async init() {
     this.updateModeUI();
     this.setupRouter();
     this.setupEventListeners();
+    this.setupUploadEventListeners();
     await this.loadInitialData();
   }
 
@@ -46,7 +66,7 @@ class ClassroomIQApp {
     if (!hash) hash = 'dashboard';
 
     const validRoutes = [
-      'dashboard', 'timetable', 'programs', 'rooms',
+      'dashboard', 'upload', 'timetable', 'programs', 'rooms',
       'optimization', 'simulation', 'results',
       'validation', 'data', 'settings'
     ];
@@ -90,6 +110,10 @@ class ClassroomIQApp {
       dashboard: {
         title: 'Academic Scheduling & Optimization',
         sub: 'Allocate rooms, compare feasible candidates, and recover from disruptions.'
+      },
+      upload: {
+        title: 'Upload & Allocate — Multi-Timetable Joint Room Allocation',
+        sub: 'Ingest raw timetables without rooms, map columns, validate periods (1–8), and solve optimal joint room assignments.'
       },
       timetable: {
         title: 'Academic Timetable Explorer',
@@ -139,6 +163,9 @@ class ClassroomIQApp {
     switch (route) {
       case 'dashboard':
         await this.loadDashboardMetrics();
+        break;
+      case 'upload':
+        // Upload & Allocate workflow active
         break;
       case 'timetable':
         await this.loadTimetable();
@@ -1329,10 +1356,933 @@ class ClassroomIQApp {
       setTimeout(() => toast.remove(), 300);
     }, 4000);
   }
+
+  /* ==========================================================================
+     UPLOAD & ALLOCATE MULTI-TIMETABLE WORKFLOW (MILESTONE 4)
+     ========================================================================== */
+
+  setupUploadEventListeners() {
+    const dropzone = document.getElementById('upload-dropzone');
+    const fileInput = document.getElementById('upload-file-input');
+    const btnBrowse = document.getElementById('btn-browse-files');
+    const btnSampleMSc = document.getElementById('btn-load-sample-msc');
+    const btnReset = document.getElementById('btn-upload-reset');
+    const previewSelect = document.getElementById('preview-file-select');
+    const btnPreflight = document.getElementById('btn-run-preflight');
+    const btnProceedAlloc = document.getElementById('btn-proceed-to-allocation');
+    const cardSynthetic = document.getElementById('profile-card-synthetic');
+    const cardFactual = document.getElementById('profile-card-factual');
+    const timeLimitInput = document.getElementById('upload-time-limit');
+    const btnRunAlloc = document.getElementById('btn-run-joint-allocation');
+    const dayTabs = document.getElementById('upload-day-tabs');
+    const groupBySelect = document.getElementById('upload-group-by');
+    const filterProg = document.getElementById('upload-filter-program');
+    const filterCohort = document.getElementById('upload-filter-cohort');
+    const btnDownloadCsv = document.getElementById('btn-download-csv');
+    const btnDownloadZip = document.getElementById('btn-download-zip');
+    const btnCloseModal = document.getElementById('btn-close-upload-modal');
+    const sessionModal = document.getElementById('upload-session-modal');
+
+    // Drag and Drop
+    if (dropzone) {
+      dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropzone.classList.add('drag-over');
+      });
+      dropzone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('drag-over');
+      });
+      dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('drag-over');
+        if (e.dataTransfer && e.dataTransfer.files) {
+          this.handleUploadFiles(e.dataTransfer.files);
+        }
+      });
+      dropzone.addEventListener('click', (e) => {
+        if (e.target !== btnSampleMSc && fileInput) {
+          fileInput.click();
+        }
+      });
+    }
+
+    if (btnBrowse && fileInput) {
+      btnBrowse.addEventListener('click', (e) => {
+        e.stopPropagation();
+        fileInput.click();
+      });
+    }
+
+    if (fileInput) {
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files) {
+          this.handleUploadFiles(e.target.files);
+        }
+      });
+    }
+
+    // Load Sample 5 M.Sc. Programs
+    if (btnSampleMSc) {
+      btnSampleMSc.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.loadSampleMScPrograms();
+      });
+    }
+
+    // Reset Workflow
+    if (btnReset) {
+      btnReset.addEventListener('click', () => this.resetUploadWorkflow());
+    }
+
+    // Preview File Dropdown
+    if (previewSelect) {
+      previewSelect.addEventListener('change', (e) => {
+        this.renderUploadPreviewTable(e.target.value);
+      });
+    }
+
+    // Run Preflight
+    if (btnPreflight) {
+      btnPreflight.addEventListener('click', () => this.runPreflightValidation());
+    }
+
+    // Proceed to Allocation Stage
+    if (btnProceedAlloc) {
+      btnProceedAlloc.addEventListener('click', () => this.proceedToAllocationStage());
+    }
+
+    // Evaluation Profile Selection
+    if (cardSynthetic && cardFactual) {
+      cardSynthetic.addEventListener('click', () => {
+        cardSynthetic.classList.add('active');
+        cardFactual.classList.remove('active');
+        this.uploadState.evaluationMode = 'synthetic';
+      });
+      cardFactual.addEventListener('click', () => {
+        cardFactual.classList.add('active');
+        cardSynthetic.classList.remove('active');
+        this.uploadState.evaluationMode = 'factual';
+      });
+    }
+
+    // Solver Time Limit Slider
+    if (timeLimitInput) {
+      const valLabel = document.getElementById('upload-time-limit-val');
+      timeLimitInput.addEventListener('input', (e) => {
+        if (valLabel) valLabel.textContent = `${parseFloat(e.target.value).toFixed(1)}s`;
+      });
+    }
+
+    // Run Joint Allocation
+    if (btnRunAlloc) {
+      btnRunAlloc.addEventListener('click', () => this.runJointAllocation());
+    }
+
+    // Timetable Controls
+    if (dayTabs) {
+      dayTabs.querySelectorAll('.day-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          dayTabs.querySelectorAll('.day-tab-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          this.uploadState.activeTimetableDay = btn.dataset.day;
+          this.loadUploadTimetable();
+        });
+      });
+    }
+
+    if (groupBySelect) {
+      groupBySelect.addEventListener('change', (e) => {
+        this.uploadState.timetableGroupBy = e.target.value;
+        this.loadUploadTimetable();
+      });
+    }
+
+    if (filterProg) {
+      filterProg.addEventListener('change', (e) => {
+        this.uploadState.filterProgram = e.target.value;
+        this.loadUploadTimetable();
+      });
+    }
+
+    if (filterCohort) {
+      filterCohort.addEventListener('change', (e) => {
+        this.uploadState.filterCohort = e.target.value;
+        this.loadUploadTimetable();
+      });
+    }
+
+    // Download Buttons
+    if (btnDownloadCsv) {
+      btnDownloadCsv.addEventListener('click', () => this.downloadExport('csv'));
+    }
+
+    if (btnDownloadZip) {
+      btnDownloadZip.addEventListener('click', () => this.downloadExport('zip'));
+    }
+
+    // Modal Close
+    if (btnCloseModal && sessionModal) {
+      btnCloseModal.addEventListener('click', () => {
+        sessionModal.style.display = 'none';
+      });
+      sessionModal.addEventListener('click', (e) => {
+        if (e.target === sessionModal) sessionModal.style.display = 'none';
+      });
+    }
+  }
+
+  updateUploadStepper(stepNum) {
+    for (let i = 1; i <= 5; i++) {
+      const node = document.getElementById(`step-node-${i}`);
+      if (!node) continue;
+      node.classList.remove('active', 'completed');
+      if (i < stepNum) {
+        node.classList.add('completed');
+      } else if (i === stepNum) {
+        node.classList.add('active');
+      }
+    }
+  }
+
+  async handleUploadFiles(fileList) {
+    if (!fileList || fileList.length === 0) return;
+
+    let addedCount = 0;
+    for (let i = 0; i < fileList.length; i++) {
+      const file = fileList[i];
+      if (!file.name.toLowerCase().endsWith('.csv')) {
+        this.showToast(`Skipped non-CSV file: ${file.name}. Only CSV format is currently supported.`, 'warning');
+        continue;
+      }
+
+      const text = await this.readFileAsText(file);
+      const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
+      if (lines.length === 0) {
+        this.showToast(`Empty CSV file skipped: ${file.name}`, 'warning');
+        continue;
+      }
+
+      const headers = lines[0].split(',').map(h => h.trim().replace(/^["']|["']$/g, ''));
+      const rowCount = Math.max(0, lines.length - 1);
+
+      // Check if already uploaded, if so replace
+      const existingIdx = this.uploadState.files.findIndex(f => f.filename === file.name);
+      const fileItem = {
+        filename: file.name,
+        size: file.size,
+        content: text,
+        rowCount: rowCount,
+        headers: headers,
+        lines: lines
+      };
+
+      if (existingIdx >= 0) {
+        this.uploadState.files[existingIdx] = fileItem;
+      } else {
+        this.uploadState.files.push(fileItem);
+      }
+      addedCount++;
+    }
+
+    if (addedCount > 0) {
+      this.renderUploadedFilesList();
+      this.renderUploadPreviewAndMappings();
+      this.updateUploadStepper(2);
+      this.showToast(`Successfully added ${addedCount} timetable file(s).`, 'success');
+    }
+  }
+
+  readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.onerror = (e) => reject(e);
+      reader.readAsText(file);
+    });
+  }
+
+  loadSampleMScPrograms() {
+    const cyberCsv = `program,cohort_id,course,academic_cycle,day,start_period,end_period,required_room_type
+M.Sc. Cyber Security,odd_sem3_CY,Network Security Lab,odd,Monday,1,2,laboratory
+M.Sc. Cyber Security,odd_sem3_CY,Discrete Mathematics,odd,Monday,3,3,classroom
+M.Sc. Cyber Security,odd_sem3_CY,Applied Cryptography,odd,Tuesday,1,2,classroom
+M.Sc. Cyber Security,odd_sem3_CY,Ethical Hacking Lab,odd,Wednesday,3,4,laboratory
+M.Sc. Cyber Security,odd_sem3_CY,Cloud Defense Architecture,odd,Thursday,1,2,classroom`;
+
+    const softwareCsv = `program,cohort_id,course,academic_cycle,day,start_period,end_period,required_room_type
+M.Sc. Software Systems,odd_sem3_SS,Cloud Computing Lab,odd,Monday,1,2,laboratory
+M.Sc. Software Systems,odd_sem3_SS,Distributed Systems,odd,Monday,4,4,classroom
+M.Sc. Software Systems,odd_sem3_SS,Enterprise Architecture,odd,Tuesday,3,4,classroom
+M.Sc. Software Systems,odd_sem3_SS,DevOps Engineering Lab,odd,Wednesday,1,2,laboratory
+M.Sc. Software Systems,odd_sem3_SS,Software Testing & QA,odd,Thursday,3,4,classroom`;
+
+    const dataScienceCsv = `program,cohort_id,course,academic_cycle,day,start_period,end_period,required_room_type
+M.Sc. Data Science,odd_sem3_DS,Machine Learning Lab,odd,Monday,3,4,laboratory
+M.Sc. Data Science,odd_sem3_DS,Statistical Inference,odd,Monday,5,5,classroom
+M.Sc. Data Science,odd_sem3_DS,Deep Learning Systems,odd,Tuesday,1,2,classroom
+M.Sc. Data Science,odd_sem3_DS,Big Data Analytics Lab,odd,Thursday,1,2,laboratory
+M.Sc. Data Science,odd_sem3_DS,Natural Language Processing,odd,Friday,3,4,classroom`;
+
+    const theoreticalCsv = `program,cohort_id,course,academic_cycle,day,start_period,end_period,required_room_type
+M.Sc. Theoretical Computer Science,odd_sem3_TCS,Automata Theory & Computability,odd,Monday,1,2,classroom
+M.Sc. Theoretical Computer Science,odd_sem3_TCS,Graph Algorithms Lab,odd,Tuesday,3,4,laboratory
+M.Sc. Theoretical Computer Science,odd_sem3_TCS,Quantum Computing Foundations,odd,Wednesday,1,2,classroom
+M.Sc. Theoretical Computer Science,odd_sem3_TCS,Advanced Complexity Theory,odd,Thursday,3,4,classroom
+M.Sc. Theoretical Computer Science,odd_sem3_TCS,Formal Verification Lab,odd,Friday,1,2,laboratory`;
+
+    const compFinanceCsv = `program,cohort_id,course,academic_cycle,day,start_period,end_period,required_room_type
+M.Sc. Computational Finance,odd_sem3_CF,Financial Modeling Lab,odd,Monday,3,4,laboratory
+M.Sc. Computational Finance,odd_sem3_CF,Quantitative Risk Analysis,odd,Tuesday,1,2,classroom
+M.Sc. Computational Finance,odd_sem3_CF,Stochastic Calculus,odd,Wednesday,3,4,classroom
+M.Sc. Computational Finance,odd_sem3_CF,Algorithmic Trading Lab,odd,Thursday,1,2,laboratory
+M.Sc. Computational Finance,odd_sem3_CF,Derivatives Pricing,odd,Friday,3,4,classroom`;
+
+    const samples = [
+      { filename: 'cyber_security.csv', content: cyberCsv },
+      { filename: 'software_systems.csv', content: softwareCsv },
+      { filename: 'data_science.csv', content: dataScienceCsv },
+      { filename: 'theoretical_cs.csv', content: theoreticalCsv },
+      { filename: 'comp_finance.csv', content: compFinanceCsv },
+    ];
+
+    this.uploadState.files = samples.map(s => {
+      const lines = s.content.split('\n');
+      return {
+        filename: s.filename,
+        size: s.content.length,
+        content: s.content,
+        rowCount: lines.length - 1,
+        headers: lines[0].split(','),
+        lines: lines
+      };
+    });
+
+    this.renderUploadedFilesList();
+    this.renderUploadPreviewAndMappings();
+    this.updateUploadStepper(2);
+    this.showToast('Loaded 5 Semester III M.Sc. Program Timetables (25 sessions across shared campus).', 'success');
+  }
+
+  removeUploadedFile(idx) {
+    if (idx >= 0 && idx < this.uploadState.files.length) {
+      const removed = this.uploadState.files.splice(idx, 1)[0];
+      this.showToast(`Removed ${removed.filename}`, 'info');
+      this.renderUploadedFilesList();
+      if (this.uploadState.files.length > 0) {
+        this.renderUploadPreviewAndMappings();
+      } else {
+        this.resetUploadWorkflow();
+      }
+    }
+  }
+
+  renderUploadedFilesList() {
+    const container = document.getElementById('uploaded-files-container');
+    const list = document.getElementById('uploaded-files-list');
+    const badge = document.getElementById('file-count-badge');
+    if (!container || !list) return;
+
+    if (this.uploadState.files.length === 0) {
+      container.style.display = 'none';
+      return;
+    }
+
+    container.style.display = 'block';
+    if (badge) badge.textContent = this.uploadState.files.length;
+
+    list.innerHTML = this.uploadState.files.map((f, idx) => {
+      const kbSize = (f.size / 1024).toFixed(1);
+      return `
+        <div class="uploaded-file-card">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <span style="font-size: 1.2rem;">📄</span>
+            <div>
+              <strong style="font-size: 0.85rem; color: var(--text-main);">${f.filename}</strong>
+              <div style="font-size: 0.72rem; color: var(--text-muted);">
+                ${f.rowCount} sessions • ${kbSize} KB • Periods 1–8
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <button class="btn-secondary" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;" onclick="window.ciqApp.renderUploadPreviewTable('${f.filename}')">
+              👁️ Preview
+            </button>
+            <button class="btn-secondary" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; color: var(--color-danger);" onclick="window.ciqApp.removeUploadedFile(${idx})">
+              ✕ Remove
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  renderUploadPreviewAndMappings() {
+    const cardMapping = document.getElementById('card-stage-mapping');
+    const previewSelect = document.getElementById('preview-file-select');
+    const pillsContainer = document.getElementById('recognized-columns-pills');
+    if (!cardMapping) return;
+
+    cardMapping.style.display = 'block';
+
+    // Populate preview dropdown
+    if (previewSelect) {
+      previewSelect.innerHTML = this.uploadState.files.map(f =>
+        `<option value="${f.filename}">${f.filename} (${f.rowCount} sessions)</option>`
+      ).join('');
+      if (this.uploadState.files.length > 0) {
+        this.renderUploadPreviewTable(this.uploadState.files[0].filename);
+      }
+    }
+
+    // Inspect recognized schema mappings across files
+    const allHeaders = new Set();
+    this.uploadState.files.forEach(f => f.headers.forEach(h => allHeaders.add(h.toLowerCase())));
+
+    const canonicalSchema = [
+      { name: 'program', label: 'Academic Program', icon: '🎓' },
+      { name: 'cohort_id', label: 'Student Cohort', icon: '👥' },
+      { name: 'course', label: 'Course Title', icon: '📚' },
+      { name: 'day', label: 'Weekday', icon: '📅' },
+      { name: 'start_period', label: 'Start Period (1–8)', icon: '⏱️' },
+      { name: 'end_period', label: 'End Period (1–8)', icon: '⏱️' },
+      { name: 'required_room_type', label: 'Required Room Type', icon: '🏫' },
+    ];
+
+    if (pillsContainer) {
+      pillsContainer.innerHTML = canonicalSchema.map(item => {
+        const isMatched = Array.from(allHeaders).some(h => h.includes(item.name.replace('_', '')) || h.includes(item.name));
+        return `
+          <span class="badge ${isMatched ? 'verified' : 'badge-warning'}" style="font-size: 0.72rem; padding: 0.3rem 0.5rem;">
+            ${item.icon} ${item.label}: ${isMatched ? '✓ Auto-Mapped' : 'Required'}
+          </span>
+        `;
+      }).join('');
+    }
+
+    // Check for ambiguous headers
+    this.checkAmbiguousHeaders();
+  }
+
+  checkAmbiguousHeaders() {
+    const alertBox = document.getElementById('ambiguous-header-alert');
+    const controls = document.getElementById('ambiguous-mapping-controls');
+    if (!alertBox || !controls) return;
+
+    const ambiguousFound = [];
+    this.uploadState.files.forEach(f => {
+      f.headers.forEach(h => {
+        const lower = h.toLowerCase().trim();
+        if (['department', 'dept', 'room'].includes(lower)) {
+          const isConfirmed = this.uploadState.confirmedAmbiguousMappings[f.filename] &&
+                              this.uploadState.confirmedAmbiguousMappings[f.filename][lower];
+          if (!isConfirmed) {
+            ambiguousFound.push({ filename: f.filename, header: lower });
+          }
+        }
+      });
+    });
+
+    if (ambiguousFound.length > 0) {
+      alertBox.style.display = 'block';
+      controls.innerHTML = ambiguousFound.map(item => `
+        <div style="background: white; padding: 0.5rem 0.75rem; border-radius: 4px; border: 1px solid var(--border-light); display: flex; align-items: center; gap: 0.5rem;">
+          <span style="font-size: 0.78rem;"><strong>${item.filename}</strong>: header '<code>${item.header}</code>' →</span>
+          <select id="map-select-${item.filename}-${item.header}" class="form-select" style="font-size: 0.78rem; padding: 0.2rem 0.4rem;">
+            <option value="program">Map to 'program' (Academic Program)</option>
+            <option value="ignore">Ignore Column</option>
+          </select>
+          <button class="btn-primary" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;" onclick="window.ciqApp.confirmAmbiguousMapping('${item.filename}', '${item.header}')">
+            ✓ Confirm
+          </button>
+        </div>
+      `).join('');
+    } else {
+      alertBox.style.display = 'none';
+    }
+  }
+
+  confirmAmbiguousMapping(filename, header) {
+    const select = document.getElementById(`map-select-${filename}-${header}`);
+    if (!select) return;
+    const targetField = select.value;
+
+    if (!this.uploadState.confirmedAmbiguousMappings[filename]) {
+      this.uploadState.confirmedAmbiguousMappings[filename] = {};
+    }
+    this.uploadState.confirmedAmbiguousMappings[filename][header] = targetField;
+
+    this.showToast(`Confirmed: '${header}' in ${filename} mapped to '${targetField}'.`, 'success');
+    this.checkAmbiguousHeaders();
+  }
+
+  renderUploadPreviewTable(filename) {
+    const table = document.getElementById('upload-preview-table');
+    if (!table) return;
+
+    const file = this.uploadState.files.find(f => f.filename === filename);
+    if (!file || !file.lines || file.lines.length === 0) return;
+
+    const thead = table.querySelector('thead');
+    const tbody = table.querySelector('tbody');
+    if (!thead || !tbody) return;
+
+    const headers = file.headers;
+    thead.innerHTML = `
+      <tr>
+        <th style="padding: 0.4rem 0.6rem; text-align: left; background: var(--bg-card-subtle);">Row #</th>
+        <th style="padding: 0.4rem 0.6rem; text-align: left; background: var(--bg-card-subtle);">Source File</th>
+        ${headers.map(h => `<th style="padding: 0.4rem 0.6rem; text-align: left; background: var(--bg-card-subtle);">${h}</th>`).join('')}
+      </tr>
+    `;
+
+    const previewRows = file.lines.slice(1, 6);
+    tbody.innerHTML = previewRows.map((line, rIdx) => {
+      const cols = line.split(',').map(c => c.trim().replace(/^["']|["']$/g, ''));
+      return `
+        <tr style="border-bottom: 1px solid var(--border-light);">
+          <td style="padding: 0.4rem 0.6rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">${rIdx + 2}</td>
+          <td style="padding: 0.4rem 0.6rem; font-size: 0.75rem; color: var(--color-primary); font-weight: 500;">${filename}</td>
+          ${cols.map(c => `<td style="padding: 0.4rem 0.6rem; font-size: 0.78rem;">${c}</td>`).join('')}
+        </tr>
+      `;
+    }).join('');
+  }
+
+  async runPreflightValidation() {
+    const btn = document.getElementById('btn-run-preflight');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="loading-spinner"></span> Validating Periods (1–8)...';
+    }
+
+    try {
+      const payload = {
+        files: this.uploadState.files.map(f => ({
+          filename: f.filename,
+          content: f.content
+        })),
+        confirmed_ambiguous_mappings: this.uploadState.confirmedAmbiguousMappings
+      };
+
+      const res = await Api.preflightUpload(payload);
+      this.uploadState.preflightResponse = res;
+
+      this.updateUploadStepper(3);
+      const stagePreflight = document.getElementById('card-stage-preflight');
+      if (stagePreflight) stagePreflight.style.display = 'block';
+
+      // Update KPI summaries
+      const acceptedVal = document.getElementById('pref-accepted-count');
+      const cycleVal = document.getElementById('pref-cycle-val');
+      const progCount = document.getElementById('pref-programs-count');
+      const progList = document.getElementById('pref-programs-list');
+      const cohortCount = document.getElementById('pref-cohorts-count');
+      const cohortList = document.getElementById('pref-cohorts-list');
+      const statusBadge = document.getElementById('preflight-status-badge');
+      const btnProceed = document.getElementById('btn-proceed-to-allocation');
+      const notice = document.getElementById('preflight-resolution-notice');
+
+      if (acceptedVal) acceptedVal.textContent = res.total_sessions_accepted;
+      if (cycleVal) cycleVal.textContent = res.academic_cycle.toUpperCase();
+      if (progCount) progCount.textContent = res.programs_detected.length;
+      if (progList) progList.textContent = res.programs_detected.slice(0, 3).join(', ') + (res.programs_detected.length > 3 ? '...' : '');
+      if (cohortCount) cohortCount.textContent = res.cohorts_detected.length;
+      if (cohortList) cohortList.textContent = res.cohorts_detected.slice(0, 3).join(', ') + (res.cohorts_detected.length > 3 ? '...' : '');
+
+      // Diagnostics rendering
+      const diagContainer = document.getElementById('preflight-diagnostics-container');
+      if (diagContainer) {
+        if (res.errors.length === 0 && res.warnings.length === 0) {
+          diagContainer.innerHTML = `
+            <div style="background: var(--color-success-bg); border: 1px solid var(--color-success-border); padding: 0.85rem 1rem; border-radius: var(--radius-sm); color: var(--color-success); font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem;">
+              <span>✓</span> <strong>Clean Ingestion:</strong> All ${res.total_sessions_accepted} session occurrences parsed cleanly with zero blocking errors across periods 1–8.
+            </div>
+          `;
+        } else {
+          let html = '';
+          if (res.errors.length > 0) {
+            html += `
+              <div style="margin-bottom: 0.75rem;">
+                <strong style="color: var(--color-danger); font-size: 0.85rem;">Blocking Errors (${res.errors.length}):</strong>
+                <div class="table-responsive" style="margin-top: 0.35rem; border: 1px solid var(--color-danger-border); border-radius: var(--radius-sm);">
+                  <table class="table" style="width: 100%; font-size: 0.78rem;">
+                    <thead style="background: var(--color-danger-bg); color: var(--color-danger);">
+                      <tr>
+                        <th style="padding: 0.4rem 0.6rem;">File</th>
+                        <th style="padding: 0.4rem 0.6rem;">Row #</th>
+                        <th style="padding: 0.4rem 0.6rem;">Field</th>
+                        <th style="padding: 0.4rem 0.6rem;">Diagnostic Message</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${res.errors.map(err => `
+                        <tr style="border-bottom: 1px solid var(--border-light);">
+                          <td style="padding: 0.4rem 0.6rem; font-weight: 500;">${err.filename}</td>
+                          <td style="padding: 0.4rem 0.6rem; font-family: var(--font-mono);">${err.row_number}</td>
+                          <td style="padding: 0.4rem 0.6rem;"><span class="badge badge-danger">${err.field || 'general'}</span></td>
+                          <td style="padding: 0.4rem 0.6rem; color: var(--color-danger);">${err.message}</td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            `;
+          }
+
+          if (res.warnings.length > 0) {
+            html += `
+              <div>
+                <strong style="color: var(--color-warning); font-size: 0.85rem;">Warnings (${res.warnings.length}):</strong>
+                <ul style="font-size: 0.78rem; color: var(--color-warning); margin-top: 0.25rem; padding-left: 1.25rem;">
+                  ${res.warnings.map(w => `<li><strong>${w.filename}:${w.row_number}</strong>: ${w.message}</li>`).join('')}
+                </ul>
+              </div>
+            `;
+          }
+          diagContainer.innerHTML = html;
+        }
+      }
+
+      // Check whether allocation is unlocked
+      if (res.is_valid && res.errors.length === 0) {
+        if (statusBadge) statusBadge.innerHTML = '<span class="badge verified">✓ Preflight Passed</span>';
+        if (btnProceed) btnProceed.disabled = false;
+        if (notice) notice.textContent = 'All preflight checks passed. Proceed to joint allocation.';
+        this.showToast(`Preflight passed! ${res.total_sessions_accepted} sessions accepted for allocation.`, 'success');
+      } else {
+        if (statusBadge) statusBadge.innerHTML = `<span class="badge badge-danger">✖ ${res.errors.length} Blocking Errors</span>`;
+        if (btnProceed) btnProceed.disabled = true;
+        if (notice) notice.textContent = 'Resolve all blocking errors to unlock joint allocation.';
+        this.showToast(`Preflight failed with ${res.errors.length} errors. Please review diagnostics.`, 'danger');
+      }
+
+      if (stagePreflight) stagePreflight.scrollIntoView({ behavior: 'smooth' });
+    } catch (err) {
+      this.showToast(`Preflight failed: ${err.message}`, 'danger');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '🔍 Run Preflight Validation';
+      }
+    }
+  }
+
+  proceedToAllocationStage() {
+    this.updateUploadStepper(4);
+    const stageAlloc = document.getElementById('card-stage-allocate');
+    if (stageAlloc) {
+      stageAlloc.style.display = 'block';
+      stageAlloc.scrollIntoView({ behavior: 'smooth' });
+    }
+  }
+
+  async runJointAllocation() {
+    if (!this.uploadState.preflightResponse || !this.uploadState.preflightResponse.run_id) {
+      this.showToast('Please run preflight validation first.', 'warning');
+      return;
+    }
+
+    const btn = document.getElementById('btn-run-joint-allocation');
+    const loading = document.getElementById('alloc-loading-indicator');
+    if (btn) btn.disabled = true;
+    if (loading) loading.style.display = 'inline-flex';
+
+    try {
+      const timeLimit = parseFloat(document.getElementById('upload-time-limit')?.value || 5.0);
+      const labException = document.getElementById('upload-allow-lab-exception')?.checked || false;
+
+      const payload = {
+        run_id: this.uploadState.preflightResponse.run_id,
+        evaluation_mode: this.uploadState.evaluationMode,
+        time_limit_seconds: timeLimit,
+        allow_computing_lab_exception: labException
+      };
+
+      const res = await Api.allocateUpload(payload);
+      this.uploadState.allocationResponse = res;
+
+      this.updateUploadStepper(5);
+
+      // Reveal Results, Timetable, and Export stages
+      const cardResults = document.getElementById('card-stage-results');
+      const cardTimetable = document.getElementById('card-stage-timetable');
+      const cardExport = document.getElementById('card-stage-export');
+
+      if (cardResults) cardResults.style.display = 'block';
+      if (cardTimetable) cardTimetable.style.display = 'block';
+      if (cardExport) cardExport.style.display = 'block';
+
+      // Update Outcome KPIs
+      const badgeStatus = document.getElementById('alloc-status-badge');
+      if (badgeStatus) {
+        if (res.status === 'completed') {
+          badgeStatus.innerHTML = '<span class="badge verified">✓ Allocation Completed</span>';
+        } else if (res.status === 'fallback') {
+          badgeStatus.innerHTML = '<span class="badge badge-warning">⚡ Baseline-Protection Fallback Retained</span>';
+        } else {
+          badgeStatus.innerHTML = '<span class="badge badge-danger">⚠️ Resource Contention / Infeasible</span>';
+        }
+      }
+
+      const assignedVal = document.getElementById('res-assigned-count');
+      const compPct = document.getElementById('res-completion-pct');
+      const allocName = document.getElementById('res-allocator-name');
+      const fallbackStatus = document.getElementById('res-fallback-status');
+      const walkSavings = document.getElementById('res-walking-savings');
+      const walkComp = document.getElementById('res-walking-comparison');
+      const valStatus = document.getElementById('res-validation-status');
+      const valCollisions = document.getElementById('res-validation-collisions');
+
+      if (assignedVal) assignedVal.textContent = `${res.assigned_count} / ${res.total_sessions}`;
+      if (compPct) compPct.textContent = `${Math.round(res.assigned_count / res.total_sessions * 100)}% Placed (${res.unassigned_count} unassigned)`;
+      if (allocName) allocName.textContent = res.selected_allocator;
+      if (fallbackStatus) fallbackStatus.textContent = res.fallback_to_baseline ? 'Protected Baseline Retained' : 'CP-SAT Candidate Adopted';
+      if (walkSavings) walkSavings.textContent = `${res.walking_time_reduction_minutes} min saved (${res.walking_time_reduction_percentage}%)`;
+      if (walkComp) walkComp.textContent = `Baseline: ${res.baseline_walking_time}m → Opt: ${res.optimized_walking_time}m`;
+      if (valStatus) valStatus.textContent = res.validation.is_valid ? 'PASS' : 'FAIL / ANOMALIES';
+      if (valCollisions) valCollisions.textContent = `${res.validation.fail_count} hard violations`;
+
+      // Infeasibility diagnosis
+      const infeasAlert = document.getElementById('res-infeasibility-alert');
+      const diagText = document.getElementById('res-diagnosis-text');
+      const unassignedChips = document.getElementById('res-unassigned-chips');
+
+      if (res.unassigned_count > 0 || res.status === 'infeasible') {
+        if (infeasAlert) infeasAlert.style.display = 'block';
+        if (diagText) diagText.textContent = res.infeasibility_diagnosis || 'Resource contention: physical room capacity exceeded.';
+        if (unassignedChips) {
+          unassignedChips.innerHTML = res.unassigned_session_ids.map(id =>
+            `<span class="session-badge-unassigned">${id}</span>`
+          ).join('');
+        }
+      } else {
+        if (infeasAlert) infeasAlert.style.display = 'none';
+      }
+
+      // Update Export Metadata Labels
+      const runIdLabel = document.getElementById('export-run-id-label');
+      const profileLabel = document.getElementById('export-profile-label');
+      if (runIdLabel) runIdLabel.textContent = res.run_id;
+      if (profileLabel) profileLabel.textContent = res.evaluation_mode_label;
+
+      // Load Timetable
+      await this.loadUploadTimetable();
+
+      if (cardResults) cardResults.scrollIntoView({ behavior: 'smooth' });
+      this.showToast(`Joint Allocation executed! Outcome: ${res.status}`, 'success');
+    } catch (err) {
+      this.showToast(`Joint allocation failed: ${err.message}`, 'danger');
+    } finally {
+      if (btn) btn.disabled = false;
+      if (loading) loading.style.display = 'none';
+    }
+  }
+
+  async loadUploadTimetable() {
+    if (!this.uploadState.allocationResponse || !this.uploadState.allocationResponse.run_id) return;
+
+    try {
+      const runId = this.uploadState.allocationResponse.run_id;
+      const day = this.uploadState.activeTimetableDay;
+      const groupBy = this.uploadState.timetableGroupBy;
+      const program = this.uploadState.filterProgram || null;
+      const cohortId = this.uploadState.filterCohort || null;
+
+      const data = await Api.getUploadTimetable(runId, {
+        day: day,
+        groupBy: groupBy,
+        program: program,
+        cohortId: cohortId
+      });
+      this.uploadState.timetableResponse = data;
+
+      // Populate filter dropdowns if not yet populated
+      const progSelect = document.getElementById('upload-filter-program');
+      const cohortSelect = document.getElementById('upload-filter-cohort');
+
+      if (progSelect && data.programs) {
+        const curr = progSelect.value;
+        progSelect.innerHTML = '<option value="">All Programs</option>' +
+          data.programs.map(p => `<option value="${p}" ${p === curr ? 'selected' : ''}>${p}</option>`).join('');
+      }
+
+      if (cohortSelect && data.cohorts) {
+        const curr = cohortSelect.value;
+        cohortSelect.innerHTML = '<option value="">All Cohorts</option>' +
+          data.cohorts.map(c => `<option value="${c}" ${c === curr ? 'selected' : ''}>${c}</option>`).join('');
+      }
+
+      this.renderUploadTimetableGrid(data);
+    } catch (err) {
+      this.showToast(`Failed to load timetable: ${err.message}`, 'danger');
+    }
+  }
+
+  renderUploadTimetableGrid(data) {
+    const headerEl = document.getElementById('upload-grid-row-header');
+    const tbody = document.getElementById('upload-timetable-tbody');
+    if (!tbody) return;
+
+    if (headerEl) {
+      headerEl.textContent = data.group_by === 'room' ? 'Room' : (data.group_by === 'program' ? 'Program' : 'Cohort');
+    }
+
+    if (!data.row_keys || data.row_keys.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="9" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+            No scheduled sessions found for ${data.target_day} with active filters.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    const periods = [1, 2, 3, 4, 5, 6, 7, 8];
+
+    tbody.innerHTML = data.row_keys.map(rowKey => {
+      const rowSlots = data.grid[rowKey] || {};
+      const cellsHtml = periods.map(p => {
+        const sessions = rowSlots[p] || [];
+        if (sessions.length === 0) {
+          return `<td style="padding: 0.5rem; text-align: center; color: #cbd5e1; font-size: 0.75rem;">-</td>`;
+        }
+
+        return `
+          <td style="padding: 0.35rem; vertical-align: top;">
+            ${sessions.map(s => {
+              const isAllocated = !!s.assigned_room_id;
+              const bgClass = isAllocated ? 'background: #eff6ff; border: 1px solid #bfdbfe;' : 'background: #fee2e2; border: 1px solid #fecaca;';
+              const roomDisplay = isAllocated ? `🏫 <strong>${s.assigned_room_id}</strong>` : '⚠️ <span style="color:red;">Unassigned</span>';
+              const sessionJson = encodeURIComponent(JSON.stringify(s));
+
+              return `
+                <div class="session-cell-clickable" onclick="window.ciqApp.showUploadSessionDetail('${sessionJson}')" style="${bgClass} padding: 0.35rem 0.45rem; border-radius: 4px; margin-bottom: 0.25rem; font-size: 0.72rem; line-height: 1.25;">
+                  <div style="font-weight: 600; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${s.course}">${s.course}</div>
+                  <div style="color: var(--text-muted); font-size: 0.68rem;">${s.cohort_id} • ${s.session_type}</div>
+                  <div style="margin-top: 0.2rem; font-size: 0.72rem;">${roomDisplay}</div>
+                </div>
+              `;
+            }).join('')}
+          </td>
+        `;
+      }).join('');
+
+      return `
+        <tr style="border-bottom: 1px solid var(--border-light);">
+          <td style="padding: 0.5rem 0.75rem; font-weight: 600; font-size: 0.8rem; background: var(--bg-card-subtle); vertical-align: middle;">
+            ${rowKey}
+          </td>
+          ${cellsHtml}
+        </tr>
+      `;
+    }).join('');
+  }
+
+  showUploadSessionDetail(sessionJson) {
+    const modal = document.getElementById('upload-session-modal');
+    const body = document.getElementById('upload-modal-body');
+    if (!modal || !body) return;
+
+    const s = JSON.parse(decodeURIComponent(sessionJson));
+    const isAllocated = !!s.assigned_room_id;
+
+    body.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 0.85rem; font-size: 0.82rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-light); padding-bottom: 0.5rem;">
+          <div>
+            <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">${s.session_id}</span>
+            <h4 style="font-size: 1.05rem; font-weight: 700; color: var(--text-main); margin: 0.15rem 0;">${s.course}</h4>
+          </div>
+          <span class="badge ${isAllocated ? 'verified' : 'badge-danger'}">
+            ${isAllocated ? '✓ Allocated' : '✖ Unassigned'}
+          </span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div>
+            <label style="color: var(--text-muted); font-size: 0.72rem; display: block;">Degree Program</label>
+            <strong>${s.program}</strong>
+          </div>
+          <div>
+            <label style="color: var(--text-muted); font-size: 0.72rem; display: block;">Student Cohort</label>
+            <strong>${s.cohort_id}</strong>
+          </div>
+          <div>
+            <label style="color: var(--text-muted); font-size: 0.72rem; display: block;">Day & Period</label>
+            <strong>${s.day}, Period ${s.start_period}–${s.end_period}</strong>
+          </div>
+          <div>
+            <label style="color: var(--text-muted); font-size: 0.72rem; display: block;">Required Room Type</label>
+            <span class="badge badge-info" style="font-size: 0.72rem;">${s.required_room_type}</span>
+          </div>
+        </div>
+
+        <div style="background: var(--bg-card-subtle); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--border-light);">
+          <label style="color: var(--text-muted); font-size: 0.72rem; display: block; margin-bottom: 0.25rem;">Assigned Physical Room</label>
+          <div style="font-size: 1.1rem; font-weight: 700; color: ${isAllocated ? 'var(--color-primary)' : 'var(--color-danger)'};">
+            ${isAllocated ? `🏫 Room ${s.assigned_room_id}` : '⚠️ No Room Placed (Capacity Contention)'}
+          </div>
+          <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem;">
+            Allocation verified against room-time exclusivity and capability constraints.
+          </div>
+        </div>
+
+        <div style="border-top: 1px solid var(--border-light); padding-top: 0.5rem; font-size: 0.75rem; color: var(--text-muted);">
+          <div>Source File: <strong>${s.source_file || 'uploaded_data.csv'}</strong> (Row ${s.source_row || 'N/A'})</div>
+          <div>Academic Cycle: <strong>${(s.academic_cycle || 'even').toUpperCase()}</strong> • Run ID: <code>${this.uploadState.allocationResponse?.run_id || 'N/A'}</code></div>
+        </div>
+      </div>
+    `;
+
+    modal.style.display = 'flex';
+  }
+
+  downloadExport(format) {
+    if (!this.uploadState.allocationResponse || !this.uploadState.allocationResponse.run_id) {
+      this.showToast('Run joint allocation before downloading results.', 'warning');
+      return;
+    }
+
+    const runId = this.uploadState.allocationResponse.run_id;
+    const url = Api.getExportUrl(runId, format);
+    this.showToast(`Starting ${format.toUpperCase()} download...`, 'info');
+    window.location.href = url;
+  }
+
+  resetUploadWorkflow() {
+    this.uploadState.files = [];
+    this.uploadState.preflightResponse = null;
+    this.uploadState.allocationResponse = null;
+    this.uploadState.timetableResponse = null;
+    this.uploadState.confirmedAmbiguousMappings = {};
+
+    const container = document.getElementById('uploaded-files-container');
+    const stageMapping = document.getElementById('card-stage-mapping');
+    const stagePreflight = document.getElementById('card-stage-preflight');
+    const stageAlloc = document.getElementById('card-stage-allocate');
+    const stageResults = document.getElementById('card-stage-results');
+    const stageTimetable = document.getElementById('card-stage-timetable');
+    const stageExport = document.getElementById('card-stage-export');
+
+    if (container) container.style.display = 'none';
+    if (stageMapping) stageMapping.style.display = 'none';
+    if (stagePreflight) stagePreflight.style.display = 'none';
+    if (stageAlloc) stageAlloc.style.display = 'none';
+    if (stageResults) stageResults.style.display = 'none';
+    if (stageTimetable) stageTimetable.style.display = 'none';
+    if (stageExport) stageExport.style.display = 'none';
+
+    this.updateUploadStepper(1);
+    this.showToast('Upload workflow reset. Ready for new timetables.', 'info');
+  }
 }
 
 // Bootstrap App
 document.addEventListener('DOMContentLoaded', () => {
   const app = new ClassroomIQApp();
+  window.ciqApp = app;
   app.init();
 });

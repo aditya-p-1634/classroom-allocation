@@ -20,6 +20,7 @@
 
       <ul class="nav-menu">
         <li class="nav-item active"><a href="#/dashboard"><span>📊</span> Dashboard</a></li>
+        <li class="nav-item"><a href="#/upload"><span>📤</span> Upload & Allocate</a></li>
         <li class="nav-item"><a href="#/timetable"><span>📅</span> Timetable</a></li>
         <li class="nav-item"><a href="#/programs"><span>👥</span> Programs & Cohorts</a></li>
         <li class="nav-item"><a href="#/rooms"><span>🏫</span> Rooms & Facilities</a></li>
@@ -212,6 +213,475 @@
               <a href="#/validation" class="btn-primary" style="font-size:0.75rem; padding:0.35rem 0.75rem; text-decoration:none;">Validation Inspector →</a>
               <a href="#/data" class="btn-rollback" style="font-size:0.75rem; padding:0.35rem 0.75rem; text-decoration:none;">Data Overview →</a>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW: UPLOAD & ALLOCATE (MULTI-TIMETABLE JOINT ROOM ALLOCATION) -->
+      <section class="page-view" id="view-upload">
+        <!-- Banner & Stepper Header -->
+        <div class="card upload-header-card" style="margin-bottom: 1.25rem;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                <span class="badge badge-info" style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.5px;">PAR-CIQ-P7-ADDENDUM-01</span>
+                <span class="badge verified" style="font-size: 0.72rem;">Multi-Program Allocation Engine</span>
+              </div>
+              <h3 style="font-size: 1.25rem; font-weight: 700; color: var(--text-main);">Upload-First Multi-Timetable Joint Allocation</h3>
+              <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
+                Upload raw unallocated timetables across multiple degree programs, detect columns, validate periods (1–8), and solve optimal room allocations jointly against the shared physical campus inventory.
+              </p>
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <button id="btn-upload-reset" class="btn-secondary" style="font-size: 0.8rem; padding: 0.4rem 0.75rem;">
+                🔄 Reset Run
+              </button>
+            </div>
+          </div>
+
+          <!-- Stepper Progress Bar -->
+          <div class="upload-stepper" style="margin-top: 1.25rem;">
+            <div class="step-node active" id="step-node-1">
+              <span class="step-num">1</span>
+              <div class="step-label">
+                <strong>Upload Files</strong>
+                <small>Select CSVs</small>
+              </div>
+            </div>
+            <div class="step-arrow">→</div>
+            <div class="step-node" id="step-node-2">
+              <span class="step-num">2</span>
+              <div class="step-label">
+                <strong>Column Mapping</strong>
+                <small>Inspect & Confirm</small>
+              </div>
+            </div>
+            <div class="step-arrow">→</div>
+            <div class="step-node" id="step-node-3">
+              <span class="step-num">3</span>
+              <div class="step-label">
+                <strong>Preflight Check</strong>
+                <small>Validate Periods 1–8</small>
+              </div>
+            </div>
+            <div class="step-arrow">→</div>
+            <div class="step-node" id="step-node-4">
+              <span class="step-num">4</span>
+              <div class="step-label">
+                <strong>Joint Allocation</strong>
+                <small>CP-SAT Optimizer</small>
+              </div>
+            </div>
+            <div class="step-arrow">→</div>
+            <div class="step-node" id="step-node-5">
+              <span class="step-num">5</span>
+              <div class="step-label">
+                <strong>Timetable & Export</strong>
+                <small>CSV & ZIP Package</small>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STAGE 1: FILE INGESTION & DROPZONE -->
+        <div class="card" id="card-stage-upload" style="margin-bottom: 1.25rem;">
+          <div class="card-header">
+            <h4>Step 1: Upload Raw Program Timetables</h4>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">
+              Format: Standard CSV without assigned rooms • Periods: 1–8
+            </div>
+          </div>
+
+          <!-- Dropzone -->
+          <div class="upload-dropzone" id="upload-dropzone">
+            <div class="dropzone-icon">📁</div>
+            <div style="font-weight: 600; font-size: 1rem; color: var(--text-main); margin-bottom: 0.25rem;">
+              Drag & Drop Raw Timetable CSV Files Here
+            </div>
+            <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem;">
+              Supports multiple raw timetable files across arbitrary programs and cohorts.
+            </div>
+            <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
+              <button id="btn-browse-files" class="btn-primary" style="font-size: 0.85rem;">
+                📂 Browse CSV Files
+              </button>
+              <button id="btn-load-sample-msc" class="btn-secondary" style="font-size: 0.85rem;" title="Loads the 5 canonical M.Sc. Semester III branch timetables for instant demonstration">
+                ⚡ Load 5 Sample M.Sc. Timetables (Semester III)
+              </button>
+            </div>
+            <input type="file" id="upload-file-input" multiple accept=".csv,text/csv" style="display: none;">
+          </div>
+
+          <!-- Uploaded Files List -->
+          <div id="uploaded-files-container" style="display: none; margin-top: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <h5 style="font-size: 0.9rem; font-weight: 600; color: var(--text-main);">Uploaded File Inventory (<span id="file-count-badge">0</span> files)</h5>
+              <span style="font-size: 0.75rem; color: var(--text-muted);">Click [Preview] to inspect raw rows</span>
+            </div>
+            <div id="uploaded-files-list" class="uploaded-files-list"></div>
+          </div>
+        </div>
+
+        <!-- STAGE 2: COLUMN INSPECTION, MAPPING, & AMBIGUOUS HEADERS -->
+        <div class="card" id="card-stage-mapping" style="display: none; margin-bottom: 1.25rem;">
+          <div class="card-header">
+            <h4>Step 2: Column Inspection & Header Mapping</h4>
+            <span class="badge verified">Provenance Preserved</span>
+          </div>
+
+          <!-- Ambiguous Header Confirmation Alert -->
+          <div id="ambiguous-header-alert" class="ambiguous-alert-card" style="display: none; margin-bottom: 1rem;">
+            <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+              <span style="font-size: 1.5rem;">⚠️</span>
+              <div style="flex: 1;">
+                <strong style="color: var(--color-warning); font-size: 0.9rem;">Ambiguous Header Detected: Explicit Confirmation Required</strong>
+                <p style="font-size: 0.82rem; color: var(--text-main); margin: 0.35rem 0;" id="ambiguous-header-desc">
+                  Header 'department' was observed. Document 05 v0.2.6 strictly mandates that Department and Program are never silently equated.
+                </p>
+                <div id="ambiguous-mapping-controls" style="display: flex; gap: 0.75rem; align-items: center; margin-top: 0.5rem; flex-wrap: wrap;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Preview Table & Recognized Columns -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <label for="preview-file-select" style="font-size: 0.82rem; font-weight: 600; color: var(--text-muted);">Inspect File:</label>
+              <select id="preview-file-select" class="form-select" style="font-size: 0.82rem; padding: 0.25rem 0.5rem;"></select>
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">
+              Previewing first 5 rows with source-row provenance
+            </div>
+          </div>
+
+          <div class="table-responsive" style="max-height: 250px; overflow-y: auto; border: 1px solid var(--border-light); border-radius: var(--radius-sm); margin-bottom: 1rem;">
+            <table class="table preview-table" id="upload-preview-table" style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+              <thead style="background: var(--bg-card-subtle);"></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+
+          <!-- Confirmed Canonical Mapping Pills -->
+          <div id="recognized-columns-container" style="background: var(--bg-card-subtle); padding: 0.75rem; border-radius: var(--radius-sm);">
+            <div style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.35rem;">
+              Recognized Schema Mappings:
+            </div>
+            <div id="recognized-columns-pills" style="display: flex; gap: 0.5rem; flex-wrap: wrap;"></div>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
+            <button id="btn-run-preflight" class="btn-primary" style="font-size: 0.85rem;">
+              🔍 Run Preflight Validation
+            </button>
+          </div>
+        </div>
+
+        <!-- STAGE 3: PREFLIGHT VALIDATION RESULTS -->
+        <div class="card" id="card-stage-preflight" style="display: none; margin-bottom: 1.25rem;">
+          <div class="card-header">
+            <h4>Step 3: Preflight Validation Diagnostics</h4>
+            <div id="preflight-status-badge"></div>
+          </div>
+
+          <!-- Metric Summary Pills -->
+          <div class="kpi-row" style="margin-bottom: 1rem;">
+            <div class="kpi-card" style="padding: 0.75rem 1rem;">
+              <div>
+                <div class="kpi-header" style="font-size: 0.72rem;">Accepted Sessions</div>
+                <div id="pref-accepted-count" class="kpi-value" style="font-size: 1.4rem;">0</div>
+                <div class="kpi-subtext" style="font-size: 0.7rem;">Ready for joint room placement</div>
+              </div>
+            </div>
+            <div class="kpi-card" style="padding: 0.75rem 1rem;">
+              <div>
+                <div class="kpi-header" style="font-size: 0.72rem;">Academic Cycle</div>
+                <div id="pref-cycle-val" class="kpi-value" style="font-size: 1.4rem;">EVEN</div>
+                <div class="kpi-subtext" style="font-size: 0.7rem;">Derived from session records</div>
+              </div>
+            </div>
+            <div class="kpi-card" style="padding: 0.75rem 1rem;">
+              <div>
+                <div class="kpi-header" style="font-size: 0.72rem;">Detected Programs</div>
+                <div id="pref-programs-count" class="kpi-value" style="font-size: 1.4rem;">0</div>
+                <div id="pref-programs-list" class="kpi-subtext" style="font-size: 0.7rem;">None</div>
+              </div>
+            </div>
+            <div class="kpi-card" style="padding: 0.75rem 1rem;">
+              <div>
+                <div class="kpi-header" style="font-size: 0.72rem;">Detected Cohorts</div>
+                <div id="pref-cohorts-count" class="kpi-value" style="font-size: 1.4rem;">0</div>
+                <div id="pref-cohorts-list" class="kpi-subtext" style="font-size: 0.7rem;">None</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Preflight Diagnostics (Errors & Warnings) -->
+          <div id="preflight-diagnostics-container"></div>
+
+          <!-- Proceed to Allocation Action -->
+          <div id="preflight-action-row" style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border-light); flex-wrap: wrap; gap: 0.5rem;">
+            <div style="font-size: 0.8rem; color: var(--text-muted);" id="preflight-resolution-notice">
+              All blocking errors must be zero to unlock joint allocation.
+            </div>
+            <button id="btn-proceed-to-allocation" class="btn-primary" style="font-size: 0.85rem;" disabled>
+              Continue to Joint Allocation →
+            </button>
+          </div>
+        </div>
+
+        <!-- STAGE 4: EVALUATION PROFILE & JOINT ALLOCATION EXECUTION -->
+        <div class="card" id="card-stage-allocate" style="display: none; margin-bottom: 1.25rem;">
+          <div class="card-header">
+            <h4>Step 4: Joint Multi-Program Room Allocation</h4>
+            <span class="badge verified">Shared Room Inventory (86 Rooms)</span>
+          </div>
+
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+            All accepted sessions across all uploaded files will be allocated together against the campus room inventory using Baseline Greedy allocation followed by CP-SAT mathematical optimization with baseline-protection fallback.
+          </p>
+
+          <!-- Evaluation Profile Selection -->
+          <div style="margin-bottom: 1.25rem;">
+            <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.5rem; display: block;">
+              Select Evaluation Profile:
+            </label>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+              <div class="eval-profile-card active" id="profile-card-synthetic" data-mode="synthetic">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                  <strong style="color: var(--color-primary); font-size: 0.9rem;">⚡ SYNTHETIC DEMO PROFILE</strong>
+                  <span class="badge verified" style="font-size: 0.68rem;">Recommended for Demo</span>
+                </div>
+                <p style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.4;">
+                  Deterministic demo assumptions: All 86 campus rooms are operational. Session demands default to 40 students; classrooms hold 60, laboratories hold 30. Perfect for hackathon evaluation.
+                </p>
+              </div>
+
+              <div class="eval-profile-card" id="profile-card-factual" data-mode="factual">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                  <strong style="color: var(--text-main); font-size: 0.9rem;">🔍 FACTUAL MODE</strong>
+                  <span class="badge badge-warning" style="font-size: 0.68rem;">Strict Evidence</span>
+                </div>
+                <p style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.4;">
+                  Strict institutional facts: Physical room operational availability records remain unverified for fresh uploads. Unconfirmed enrollment and seating capacities remain disclosed as unknowns.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Solver Controls -->
+          <div style="display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.25rem; background: var(--bg-card-subtle); padding: 0.75rem 1rem; border-radius: var(--radius-sm);">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <label for="upload-time-limit" style="font-size: 0.8rem; font-weight: 600; color: var(--text-main);">CP-SAT Time Limit:</label>
+              <input type="range" id="upload-time-limit" min="1" max="10" value="5" step="1" style="width: 100px;">
+              <span id="upload-time-limit-val" style="font-size: 0.8rem; font-weight: 600; color: var(--color-primary);">5.0s</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <input type="checkbox" id="upload-allow-lab-exception" style="cursor: pointer;">
+              <label for="upload-allow-lab-exception" style="font-size: 0.8rem; color: var(--text-main); cursor: pointer;">
+                Allow Narrow Computing Lab Exception
+              </label>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; align-items: center; gap: 1rem;">
+            <div id="alloc-loading-indicator" style="display: none; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: var(--color-primary);">
+              <span class="loading-spinner"></span> Solving CP-SAT Joint Multi-Program Allocation...
+            </div>
+            <button id="btn-run-joint-allocation" class="btn-primary" style="font-size: 0.9rem; padding: 0.5rem 1.25rem;">
+              ▶ Run Joint Allocation
+            </button>
+          </div>
+        </div>
+
+        <!-- STAGE 5: ALLOCATION OUTCOME, METRICS, & INDEPENDENT VALIDATION -->
+        <div class="card" id="card-stage-results" style="display: none; margin-bottom: 1.25rem;">
+          <div class="card-header">
+            <h4>Step 5: Allocation Comparison & Independent Validation</h4>
+            <div id="alloc-status-badge"></div>
+          </div>
+
+          <!-- Allocation KPI Grid -->
+          <div class="kpi-row" style="margin-bottom: 1rem;">
+            <div class="kpi-card">
+              <div>
+                <div class="kpi-header">Sessions Allocated</div>
+                <div id="res-assigned-count" class="kpi-value">0</div>
+                <div id="res-completion-pct" class="kpi-subtext">0% Placed</div>
+              </div>
+              <span class="kpi-badge verified">Zero Dropped</span>
+            </div>
+
+            <div class="kpi-card">
+              <div>
+                <div class="kpi-header">Selected Allocator</div>
+                <div id="res-allocator-name" class="kpi-value" style="font-size: 1.1rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">-</div>
+                <div id="res-fallback-status" class="kpi-subtext">-</div>
+              </div>
+              <span class="kpi-badge verified">Baseline Protection</span>
+            </div>
+
+            <div class="kpi-card">
+              <div>
+                <div class="kpi-header">Walking Time Savings</div>
+                <div id="res-walking-savings" class="kpi-value">0 min</div>
+                <div id="res-walking-comparison" class="kpi-subtext">Baseline: 0 min → Opt: 0 min</div>
+              </div>
+              <span class="kpi-badge verified">Campus Graph</span>
+            </div>
+
+            <div class="kpi-card">
+              <div>
+                <div class="kpi-header">Independent Validation</div>
+                <div id="res-validation-status" class="kpi-value">PASS</div>
+                <div id="res-validation-collisions" class="kpi-subtext">0 room/cohort collisions</div>
+              </div>
+              <span class="kpi-badge verified">Strict Auditor</span>
+            </div>
+          </div>
+
+          <!-- Infeasibility Diagnosis Alert -->
+          <div id="res-infeasibility-alert" class="ambiguous-alert-card" style="display: none; margin-bottom: 1rem; border-color: var(--color-danger); background: var(--color-danger-bg);">
+            <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+              <span style="font-size: 1.5rem;">⚠️</span>
+              <div style="flex: 1;">
+                <strong style="color: var(--color-danger); font-size: 0.9rem;">Partial Allocation: Physical Room Contention Diagnosed</strong>
+                <p style="font-size: 0.82rem; color: var(--text-main); margin: 0.35rem 0;" id="res-diagnosis-text"></p>
+                <div style="margin-top: 0.5rem;">
+                  <span style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted);">Unassigned Sessions:</span>
+                  <div id="res-unassigned-chips" style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.25rem;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STAGE 6: COMPLETED TIMETABLE EXPLORER -->
+        <div class="card" id="card-stage-timetable" style="display: none; margin-bottom: 1.25rem;">
+          <div class="card-header">
+            <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+              <h4>Step 6: Allocated Timetable Explorer</h4>
+              <span class="badge verified" id="timetable-run-badge">Exact Upload Run</span>
+            </div>
+            <div style="font-size: 0.78rem; color: var(--text-muted);">
+              Periods 1–8 • Click session block to inspect full provenance
+            </div>
+          </div>
+
+          <!-- Timetable Filter Bar -->
+          <div class="timetable-controls-row" style="margin-bottom: 1rem; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+            <!-- Day Selector Buttons -->
+            <div class="day-tabs-group" id="upload-day-tabs" style="display: flex; gap: 0.25rem;">
+              <button class="day-tab-btn active" data-day="Monday">Mon</button>
+              <button class="day-tab-btn" data-day="Tuesday">Tue</button>
+              <button class="day-tab-btn" data-day="Wednesday">Wed</button>
+              <button class="day-tab-btn" data-day="Thursday">Thu</button>
+              <button class="day-tab-btn" data-day="Friday">Fri</button>
+            </div>
+
+            <!-- Group By Selector -->
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <label for="upload-group-by" style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted);">Group:</label>
+              <select id="upload-group-by" class="form-select" style="font-size: 0.8rem; padding: 0.25rem 0.5rem;">
+                <option value="cohort" selected>By Cohort</option>
+                <option value="room">By Room</option>
+                <option value="program">By Program</option>
+              </select>
+            </div>
+
+            <!-- Filter: Program -->
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <label for="upload-filter-program" style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted);">Program:</label>
+              <select id="upload-filter-program" class="form-select" style="font-size: 0.8rem; padding: 0.25rem 0.5rem;">
+                <option value="">All Programs</option>
+              </select>
+            </div>
+
+            <!-- Filter: Cohort -->
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <label for="upload-filter-cohort" style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted);">Cohort:</label>
+              <select id="upload-filter-cohort" class="form-select" style="font-size: 0.8rem; padding: 0.25rem 0.5rem;">
+                <option value="">All Cohorts</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Timetable Grid Container -->
+          <div class="table-responsive" style="border: 1px solid var(--border-light); border-radius: var(--radius-sm); overflow-x: auto;">
+            <table class="timetable-grid" id="upload-timetable-table">
+              <thead>
+                <tr>
+                  <th style="min-width: 140px; text-align: left;" id="upload-grid-row-header">Cohort</th>
+                  <th>P1<br><small>8:30-9:20</small></th>
+                  <th>P2<br><small>9:20-10:10</small></th>
+                  <th>P3<br><small>10:30-11:20</small></th>
+                  <th>P4<br><small>11:20-12:10</small></th>
+                  <th>P5<br><small>1:10-2:00</small></th>
+                  <th>P6<br><small>2:00-2:50</small></th>
+                  <th>P7<br><small>3:00-3:50</small></th>
+                  <th>P8<br><small>3:50-4:40</small></th>
+                </tr>
+              </thead>
+              <tbody id="upload-timetable-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- STAGE 7: EXPORT DELIVERABLES -->
+        <div class="card" id="card-stage-export" style="display: none; margin-bottom: 2rem;">
+          <div class="card-header">
+            <h4>Step 7: Download Allocation Deliverables</h4>
+            <span class="badge verified">Document 05 v0.2.6 Compliant</span>
+          </div>
+
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Export the completed schedule with stable session IDs, physical room allocations, source filenames, and row numbers. Every download reflects the exact selected allocation for this upload run.
+          </p>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+            <!-- Download Combined CSV Card -->
+            <div style="border: 1px solid var(--border-light); border-radius: var(--radius-sm); padding: 1rem; background: var(--bg-card-subtle);">
+              <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                <span style="font-size: 1.25rem;">📄</span>
+                <strong style="color: var(--text-main); font-size: 0.95rem;">Combined Allocation CSV</strong>
+              </div>
+              <p style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.75rem; line-height: 1.4;">
+                Complete single-file dataset containing all uploaded programs and cohorts with assigned physical rooms and source-row provenance.
+              </p>
+              <button id="btn-download-csv" class="btn-primary" style="width: 100%; font-size: 0.85rem;">
+                📥 Download Combined CSV
+              </button>
+            </div>
+
+            <!-- Download Complete Archive ZIP Card -->
+            <div style="border: 1px solid var(--border-light); border-radius: var(--radius-sm); padding: 1rem; background: var(--bg-card-subtle);">
+              <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                <span style="font-size: 1.25rem;">📦</span>
+                <strong style="color: var(--text-main); font-size: 0.95rem;">Complete Package (ZIP)</strong>
+              </div>
+              <p style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.75rem; line-height: 1.4;">
+                Contains Combined CSV, separate per-program CSVs, preserved source-file CSVs, and an authoritative Audit Certificate text report.
+              </p>
+              <button id="btn-download-zip" class="btn-primary" style="width: 100%; font-size: 0.85rem; background: #0f766e; border-color: #0d9488;">
+                📦 Download Complete Package (ZIP)
+              </button>
+            </div>
+          </div>
+
+          <div style="background: var(--bg-app); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px dashed var(--border-subtle); display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: var(--text-muted); flex-wrap: wrap; gap: 0.5rem;">
+            <span>Run ID: <code id="export-run-id-label" style="color: var(--color-primary); font-weight: 600;">-</code></span>
+            <span>Evaluation Profile: <span id="export-profile-label" style="font-weight: 600;">-</span></span>
+            <span>Note: In-memory upload runs remain accessible during the active server session.</span>
+          </div>
+        </div>
+
+        <!-- Session Detail Modal for Upload Timetable -->
+        <div id="upload-session-modal" class="modal-backdrop" style="display: none;">
+          <div class="modal-card">
+            <div class="modal-header">
+              <h4 id="upload-modal-title">Uploaded Session Inspector</h4>
+              <button id="btn-close-upload-modal" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body" id="upload-modal-body"></div>
           </div>
         </div>
       </section>

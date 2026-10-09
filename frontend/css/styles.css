@@ -1070,3 +1070,168 @@ body {
   margin-bottom: 1rem;
 }
 
+/* ==========================================================================
+   Upload & Allocate Multi-Timetable Styles (Milestone 4)
+   ========================================================================== */
+
+.upload-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-card-subtle);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  overflow-x: auto;
+}
+
+.step-node {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  opacity: 0.45;
+  transition: opacity var(--transition-fast);
+}
+
+.step-node.active {
+  opacity: 1;
+}
+
+.step-node.completed {
+  opacity: 0.95;
+}
+
+.step-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--border-subtle);
+  color: var(--text-main);
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.step-node.active .step-num {
+  background: var(--color-primary);
+  color: #ffffff;
+}
+
+.step-node.completed .step-num {
+  background: var(--color-success);
+  color: #ffffff;
+}
+
+.step-label strong {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+.step-label small {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.step-arrow {
+  color: var(--border-subtle);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.upload-dropzone {
+  border: 2px dashed var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 2.25rem 1.5rem;
+  text-align: center;
+  background: var(--bg-app);
+  transition: all var(--transition-fast);
+  cursor: pointer;
+}
+
+.upload-dropzone:hover, .upload-dropzone.drag-over {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.dropzone-icon {
+  font-size: 2.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.uploaded-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.uploaded-file-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.65rem 0.85rem;
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.uploaded-file-card:hover {
+  background: #f8fafc;
+}
+
+.ambiguous-alert-card {
+  border: 1px solid var(--color-warning-border);
+  background: var(--color-warning-bg);
+  border-radius: var(--radius-sm);
+  padding: 0.85rem 1rem;
+}
+
+.eval-profile-card {
+  border: 2px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  cursor: pointer;
+  background: var(--bg-card);
+  transition: all var(--transition-fast);
+}
+
+.eval-profile-card:hover {
+  border-color: var(--border-focus);
+}
+
+.eval-profile-card.active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+  box-shadow: var(--shadow-sm);
+}
+
+.session-badge-unassigned {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger-border);
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.session-cell-clickable {
+  cursor: pointer;
+  transition: transform var(--transition-fast);
+}
+
+.session-cell-clickable:hover {
+  transform: translateY(-1px);
+  filter: brightness(0.96);
+}
+

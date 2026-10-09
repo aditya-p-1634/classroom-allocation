@@ -181,5 +181,63 @@ export const Api = {
     });
     if (!res.ok) throw new Error(`Rollback error: ${res.statusText}`);
     return await res.json();
+  },
+
+  /**
+   * Preflights uploaded raw timetable CSV files.
+   */
+  async preflightUpload(payload) {
+    const res = await fetch(`${API_BASE}/upload/preflight`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `Preflight error: ${res.statusText}`);
+    }
+    return await res.json();
+  },
+
+  /**
+   * Triggers joint CP-SAT multi-program allocation across shared room inventory.
+   */
+  async allocateUpload(payload) {
+    const res = await fetch(`${API_BASE}/upload/allocate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `Allocation error: ${res.statusText}`);
+    }
+    return await res.json();
+  },
+
+  /**
+   * Fetches allocated weekly timetable grid for a specific upload run.
+   */
+  async getUploadTimetable(runId, { day = 'Monday', groupBy = 'cohort', program = null, cohortId = null, roomId = null } = {}) {
+    const params = new URLSearchParams();
+    if (day) params.append('day', day);
+    if (groupBy) params.append('group_by', groupBy);
+    if (program) params.append('program', program);
+    if (cohortId) params.append('cohort_id', cohortId);
+    if (roomId) params.append('room_id', roomId);
+
+    const res = await fetch(`${API_BASE}/upload/timetable/${encodeURIComponent(runId)}?${params.toString()}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `Upload timetable error: ${res.statusText}`);
+    }
+    return await res.json();
+  },
+
+  /**
+   * Returns download URL for combined CSV or ZIP export package.
+   */
+  getExportUrl(runId, format = 'csv') {
+    return `${API_BASE}/upload/export/${encodeURIComponent(runId)}?format=${encodeURIComponent(format)}`;
   }
 };
