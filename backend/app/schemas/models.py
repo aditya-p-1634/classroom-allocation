@@ -64,11 +64,11 @@ class Session(BaseModel):
     student_count: Optional[int] = Field(None, description="Enrolled students (unpopulated in source)")
     required_room_type: str = Field(..., description="Required room category ('classroom', 'laboratory', 'project_room')")
     required_facilities: Optional[str] = Field(None, description="Mandatory hardware equipment (unpopulated in source)")
-    assigned_room_id: str = Field(..., description="Room assigned in source timetable PDF")
-    source_file: str = Field(..., description="Source timetable PDF filename")
-    source_page: str = Field(..., description="Source page reference")
-    validation_status: str = Field(..., description="Lineage status (e.g. 'source_assignment')")
-    notes: str = Field(..., description="Session notes and caveats")
+    assigned_room_id: Optional[str] = Field(None, description="Room assigned in source timetable or None if unallocated")
+    source_file: str = Field("source_timetable", description="Source timetable PDF or CSV filename")
+    source_page: str = Field("1", description="Source page or row reference")
+    validation_status: str = Field("source_assignment", description="Lineage status (e.g. 'source_assignment', 'uploaded_raw')")
+    notes: str = Field("", description="Session notes and caveats")
 
     @property
     def duration_periods(self) -> int:
