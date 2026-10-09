@@ -199,7 +199,7 @@ class AllocationService:
         capacity_mode: CapacityPolicyMode = CapacityPolicyMode.FACTUAL,
         synthetic_room_capacities: Optional[Dict[str, int]] = None,
         synthetic_session_demands: Optional[Dict[str, int]] = None,
-        time_limit_seconds: float = 10.0,
+        time_limit_seconds: float = 15.0,
     ) -> AllocationResult:
         """Executes CP-SAT mathematical optimization and independently validates candidate."""
         optimizer = CPSATRoomOptimizer(
@@ -222,7 +222,7 @@ class AllocationService:
         capacity_mode: CapacityPolicyMode = CapacityPolicyMode.FACTUAL,
         synthetic_room_capacities: Optional[Dict[str, int]] = None,
         synthetic_session_demands: Optional[Dict[str, int]] = None,
-        time_limit_seconds: float = 10.0,
+        time_limit_seconds: float = 15.0,
     ) -> MetricComparison:
         """Runs both baseline and optimizer under identical inputs and returns side-by-side comparison."""
         calc = MetricsCalculator(self.snapshot)

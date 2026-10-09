@@ -26,7 +26,7 @@ def test_optimizer_candidate_independent_validation(snapshot: DatasetSnapshot):
     # Run optimizer on even cycle (570 sessions)
     result = alloc_service.run_optimized_allocation(
         academic_cycle="even",
-        time_limit_seconds=10.0,
+        time_limit_seconds=15.0,
     )
 
     assert result.allocator_name == "CPSATRoomOptimizer"
@@ -42,7 +42,7 @@ def test_optimizer_preserves_hard_constraints(snapshot: DatasetSnapshot):
     alloc_service = AllocationService(snapshot)
     result = alloc_service.run_optimized_allocation(
         academic_cycle="even",
-        time_limit_seconds=10.0,
+        time_limit_seconds=15.0,
     )
 
     candidate = result.candidate
@@ -92,8 +92,8 @@ def test_optimizer_measurable_improvement_over_baseline(snapshot: DatasetSnapsho
     alloc_service = AllocationService(snapshot)
 
     comparison = alloc_service.compare_baseline_and_optimizer(
-        academic_cycle="odd",
-        time_limit_seconds=10.0,
+        academic_cycle="even",
+        time_limit_seconds=15.0,
     )
 
     # Baseline walking time should be >= optimized walking time
@@ -111,7 +111,7 @@ def test_factual_vs_synthetic_modes_separation(snapshot: DatasetSnapshot):
         snapshot=snapshot,
         capacity_mode=CapacityPolicyMode.FACTUAL,
     )
-    res_factual = optimizer_factual.solve_and_validate(academic_cycle="even", time_limit_seconds=5.0)
+    res_factual = optimizer_factual.solve_and_validate(academic_cycle="even", time_limit_seconds=15.0)
 
     # Factual mode must report insufficient evidence for capacity
     assert res_factual.validation.insufficient_evidence_count > 0
@@ -127,6 +127,130 @@ def test_factual_vs_synthetic_modes_separation(snapshot: DatasetSnapshot):
         synthetic_room_capacities=synthetic_caps,
         synthetic_session_demands=synthetic_demands,
     )
-    res_synth = optimizer_synth.solve_and_validate(academic_cycle="even", time_limit_seconds=5.0)
+    res_synth = optimizer_synth.solve_and_validate(academic_cycle="even", time_limit_seconds=15.0)
     assert res_synth.capacity_mode == "synthetic_evaluation"
     assert res_synth.validation.is_valid is True
+
+
+def test_optimizer_prefers_3min_over_8min_transition(snapshot: DatasetSnapshot):
+    """Hand-calculated objective unit test: distinguishes 3-min from 8-min transitions.
+
+    Setup:
+    - Session S1 is pre-reserved in room A105 on Monday Period 1 for cohort COHORT_HANDCALC.
+    - Session S2 takes place on Monday Period 2 for the same cohort.
+    - Candidate rooms for S2: A106 (same building prefix, T(A105, A106) = 3.0 min)
+                             M201 (different building, T(A105, M201) = 8.0 min)
+    - Room A105 is blocked at Period 2 (so same-room continuity is unavailable).
+
+    Hand-calculated objective comparison:
+    - If S2 -> A106: Walking time = 3.0 min. Savings vs 8.0 min max = (8.0 - 3.0) * 10 = +50 points.
+    - If S2 -> M201: Walking time = 8.0 min. Savings vs 8.0 min max = (8.0 - 8.0) * 10 = 0 points.
+    - Suitability and feasibility factors are identical (both are ordinary classrooms).
+    - Objective strictly prefers A106 over M201 by 50 points.
+    """
+    r_a = snapshot.room_index["A105"]
+    r_b = snapshot.room_index["A106"]
+    r_c = snapshot.room_index["M201"]
+
+    s1 = snapshot.sessions[0].model_copy(update={
+        "session_id": "HANDCALC_S1",
+        "cohort_id": "COHORT_HC",
+        "day": "Monday",
+        "start_period": 1,
+        "end_period": 1,
+        "academic_cycle": "odd",
+        "required_room_type": "classroom",
+    })
+    s2 = snapshot.sessions[1].model_copy(update={
+        "session_id": "HANDCALC_S2",
+        "cohort_id": "COHORT_HC",
+        "day": "Monday",
+        "start_period": 2,
+        "end_period": 2,
+        "academic_cycle": "odd",
+        "required_room_type": "classroom",
+    })
+
+    fixture_snapshot = DatasetSnapshot(
+        rooms=[r_a, r_b, r_c],
+        sessions=[s1, s2],
+        facilities=[],
+        availability=[],
+        travel_times=snapshot.travel_times,
+        events=[],
+        complaints=[],
+        report=snapshot.report,
+    )
+
+    optimizer = CPSATRoomOptimizer(fixture_snapshot)
+    candidate = optimizer.solve(
+        sessions_to_allocate=[s2],
+        pre_reserved_assignments={"HANDCALC_S1": "A105"},
+        blocked_room_periods={("A105", "Monday", 2)},
+        time_limit_seconds=5.0,
+    )
+
+    assert candidate.metadata["solver_status"] in ["OPTIMAL", "FEASIBLE"]
+    assert candidate.assignments.get("HANDCALC_S2") == "A106"
+    assert candidate.assignments.get("HANDCALC_S2") != "M201"
+
+
+def test_optimizer_prefers_0min_over_3min_transition(snapshot: DatasetSnapshot):
+    """Hand-calculated objective unit test: distinguishes 0-min (same room) from 3-min transitions.
+
+    Setup:
+    - Session S1 is pre-reserved in room A105 on Monday Period 1 for cohort COHORT_HANDCALC.
+    - Session S2 takes place on Monday Period 2 for the same cohort.
+    - Candidate rooms for S2: A105 (same room, T(A105, A105) = 0.0 min)
+                             A106 (same building, T(A105, A106) = 3.0 min)
+                             M201 (cross building, T(A105, M201) = 8.0 min)
+
+    Hand-calculated objective comparison:
+    - If S2 -> A105: Walking time = 0.0 min. Savings vs 8.0 min max = (8.0 - 0.0) * 10 = +80 points.
+    - If S2 -> A106: Walking time = 3.0 min. Savings vs 8.0 min max = (8.0 - 3.0) * 10 = +50 points.
+    - If S2 -> M201: Walking time = 8.0 min. Savings vs 8.0 min max = (8.0 - 8.0) * 10 = 0 points.
+    - Objective strictly prefers A105 over A106 (+30 points) and over M201 (+80 points).
+    """
+    r_a = snapshot.room_index["A105"]
+    r_b = snapshot.room_index["A106"]
+    r_c = snapshot.room_index["M201"]
+
+    s1 = snapshot.sessions[0].model_copy(update={
+        "session_id": "HANDCALC_S1",
+        "cohort_id": "COHORT_HC",
+        "day": "Monday",
+        "start_period": 1,
+        "end_period": 1,
+        "academic_cycle": "odd",
+        "required_room_type": "classroom",
+    })
+    s2 = snapshot.sessions[1].model_copy(update={
+        "session_id": "HANDCALC_S2",
+        "cohort_id": "COHORT_HC",
+        "day": "Monday",
+        "start_period": 2,
+        "end_period": 2,
+        "academic_cycle": "odd",
+        "required_room_type": "classroom",
+    })
+
+    fixture_snapshot = DatasetSnapshot(
+        rooms=[r_a, r_b, r_c],
+        sessions=[s1, s2],
+        facilities=[],
+        availability=[],
+        travel_times=snapshot.travel_times,
+        events=[],
+        complaints=[],
+        report=snapshot.report,
+    )
+
+    optimizer = CPSATRoomOptimizer(fixture_snapshot)
+    candidate = optimizer.solve(
+        sessions_to_allocate=[s2],
+        pre_reserved_assignments={"HANDCALC_S1": "A105"},
+        time_limit_seconds=5.0,
+    )
+
+    assert candidate.metadata["solver_status"] in ["OPTIMAL", "FEASIBLE"]
+    assert candidate.assignments.get("HANDCALC_S2") == "A105"

@@ -134,3 +134,54 @@ def test_state_rollback_preserves_initial_assignments(snapshot: DatasetSnapshot)
     assert rolled_back is True
     assert engine.current_assignments == initial_assignments
     assert event.event_id not in engine.applied_event_ids
+
+
+def test_feasible_synthetic_room_closure_recovers_successfully(snapshot: DatasetSnapshot):
+    """Verifies that a room closure with genuine compatible capacity recovers successfully.
+
+    Distinct from EVT-DEMO-001 (where all 20 campus laboratories are concurrently saturated),
+    this explicitly labeled synthetic fixture simulates a room closure on classroom A105
+    during Monday Period 1 (targeting session SSN00207 in the even cycle), where alternative
+    compatible classrooms exist.
+
+    Demonstrates:
+    - Truthful diagnosis of recovery when capacity exists.
+    - Successful reassignment to a compatible classroom.
+    - Zero unaffected session reassignments (strictly <= 2 ripple reassignments).
+    - Independent validation of candidate passes with zero constraint violations.
+    """
+    target_session = next(
+        s for s in snapshot.sessions
+        if s.academic_cycle == "even" and s.assigned_room_id == "A105" and s.day == "Monday" and 1 in s.period_range
+    )
+
+    synthetic_event = DisruptionEvent(
+        event_id="EVT-SYNTH-CLOSURE-FEASIBLE",
+        room_id="A105",
+        academic_cycle="even",
+        start_day="Monday",
+        start_period=target_session.start_period,
+        end_day="Monday",
+        end_period=target_session.end_period,
+        event_type="room_closure",
+        description="Feasible synthetic room closure: temporary maintenance of classroom A105",
+        status="simulation_only",
+        source_status="synthetic",
+        related_session_id=target_session.session_id,
+    )
+
+    engine = SimulationEngine(snapshot)
+    result = engine.simulate_disruption(synthetic_event, max_unaffected_reassignments=2)
+
+    assert result.event_id == "EVT-SYNTH-CLOSURE-FEASIBLE"
+    assert result.status == SimulationStatus.SUCCESS
+    assert target_session.session_id in result.affected_sessions
+    assert result.unaffected_reassignments_count <= 2
+    assert result.unaffected_reassignments_count == 0  # Reassigned directly without ripple
+    assert result.validation is not None
+    assert result.validation.is_valid is True
+    assert result.validation.fail_count == 0
+    assert result.metrics is not None
+    assert result.metrics.recovery_successful is True
+    assert result.metrics.ripple_acceptable is True
+
