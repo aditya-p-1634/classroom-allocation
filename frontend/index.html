@@ -68,11 +68,15 @@
           <p id="page-subheading">Allocate rooms, compare feasible candidates, and recover from disruptions.</p>
         </div>
         <div class="header-controls">
-          <span class="control-badge">Academic Year: 2026</span>
+          <!-- Mode Switcher Pill Button -->
+          <button id="btn-toggle-eval-mode" class="mode-toggle-btn synthetic" title="Click to toggle between Synthetic Demo Profile and Factual Mode">
+            ⚡ SYNTHETIC DEMO PROFILE
+          </button>
+          <span class="control-badge">Year: 2026</span>
           <div class="select-wrapper">
             <select id="cycle-select" aria-label="Select academic cycle">
-              <option value="odd" selected>Odd Cycle (680 sessions)</option>
-              <option value="even">Even Cycle (570 sessions)</option>
+              <option value="odd">Odd Cycle (680 sessions)</option>
+              <option value="even" selected>Even Cycle (570 sessions)</option>
             </select>
           </div>
           <button id="btn-run-optimize" class="btn-primary">
@@ -83,14 +87,14 @@
 
       <!-- VIEW 1: DASHBOARD -->
       <section class="page-view active" id="view-dashboard">
-        <!-- KPI Metrics Cards Row (Matching Image 2 with Defect 1 Fix) -->
+        <!-- KPI Metrics Cards Row -->
         <div class="kpi-row" aria-label="Key Performance Indicators">
           <!-- Card 1: Total Sessions -->
           <div class="kpi-card">
             <div>
               <div class="kpi-header">Total Sessions</div>
-              <div id="kpi-sessions-val" class="kpi-value">680</div>
-              <div id="kpi-sessions-sub" class="kpi-subtext">Odd cycle selected ↔ Even cycle: 570</div>
+              <div id="kpi-sessions-val" class="kpi-value">570</div>
+              <div id="kpi-sessions-sub" class="kpi-subtext">Even cycle selected ↔ Odd cycle: 680</div>
             </div>
             <span class="kpi-badge verified">✓ Verified (sessions.csv)</span>
           </div>
@@ -125,7 +129,7 @@
             <span class="kpi-badge verified">✓ Inventory ≠ availability</span>
           </div>
 
-          <!-- Card 5: Schedule Slot Coverage (Redesigned per Defect 1) -->
+          <!-- Card 5: Schedule Slot Coverage -->
           <div class="kpi-card" style="min-width: 260px;">
             <div>
               <div class="kpi-header">Schedule Slot Coverage</div>
@@ -163,13 +167,13 @@
               <div class="chart-cycle-block" style="margin-top: 0.5rem;">
                 <div class="chart-cycle-label">
                   <span>Odd cycle • 680 sessions</span>
-                  <span class="chart-pill danger">ODD: Baseline fallback kept</span>
+                  <span class="chart-pill success" style="background:#f0fdf4; color:#15803d; border-color:#bbf7d0;">ODD: Safe Fallback Retained</span>
                 </div>
                 <div class="bar-track" title="Baseline: 1,248 min">
                   <div class="bar-fill baseline" style="width: 96.5%;">Baseline (Kept): 1,248 min</div>
                 </div>
                 <div class="bar-track" title="Candidate: 1,286 min">
-                  <div class="bar-fill rejected" style="width: 100%;">Solver Candidate: 1,286 min</div>
+                  <div class="bar-fill rejected" style="width: 100%;">Raw Candidate: 1,286 min (Rejected)</div>
                 </div>
               </div>
             </div>
@@ -201,8 +205,8 @@
             <ul style="list-style: none; font-size: 0.78rem; line-height: 1.6; margin-top: 0.5rem; color: #334155;">
               <li>🔒 <strong>All 7 CSV Datasets:</strong> SHA-256 Verified</li>
               <li>🛡️ <strong>Independent Validation:</strong> 5 Hard Constraints</li>
-              <li>⚠️ <strong>Data Gaps Preserved:</strong> Capacity & Enrollments</li>
-              <li>⚡ <strong>Baseline Fallback:</strong> Enforced unconditionally</li>
+              <li>⚡ <strong>Synthetic Demo Profile:</strong> Active for Demonstration</li>
+              <li>🛡️ <strong>Baseline Protection Fallback:</strong> Enforced unconditionally</li>
             </ul>
             <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
               <a href="#/validation" class="btn-primary" style="font-size:0.75rem; padding:0.35rem 0.75rem; text-decoration:none;">Validation Inspector →</a>
@@ -216,20 +220,26 @@
       <section class="page-view" id="view-timetable">
         <div class="card">
           <div class="card-header">
-            <div class="card-title-group">
-              <h3>Academic Timetable Grid</h3>
-              <span class="illustrative-pill">Provenance: Imported Source Timetable (sessions.csv) • Not Allocations</span>
+            <div class="card-title-group" style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+              <h3>Academic Timetable Explorer</h3>
+              <!-- Source Toggle: Source Timetable vs Selected Allocation -->
+              <div class="source-toggle-group" id="timetable-source-toggle">
+                <button class="source-toggle-btn active" data-source="source">Imported Source Timetable</button>
+                <button class="source-toggle-btn" data-source="selected">Selected Allocation</button>
+              </div>
+              <span id="timetable-status-pill" class="illustrative-pill">Imported Source Timetable (sessions.csv)</span>
             </div>
-            <div class="tab-group">
-              <button class="tab-btn active" data-tab="timetable">Timetable View</button>
-              <button class="tab-btn" data-tab="room">Room View</button>
-              <button class="tab-btn" data-tab="cohort">Cohort View</button>
-              <button class="tab-btn" data-tab="program">Program View</button>
+            <!-- Grouping Tab buttons -->
+            <div class="tab-group" id="timetable-tab-group">
+              <button class="tab-btn active" data-tab="timetable" data-group="cohort">Timetable View</button>
+              <button class="tab-btn" data-tab="room" data-group="room">Room View</button>
+              <button class="tab-btn" data-tab="cohort" data-group="cohort">Cohort View</button>
+              <button class="tab-btn" data-tab="program" data-group="program">Program View</button>
             </div>
           </div>
 
           <div class="card-filter-row">
-            <span style="color:#64748b; font-size:0.75rem;">Showing live session cells from the selected academic cycle and active filters.</span>
+            <span id="timetable-hint-text" style="color:#64748b; font-size:0.75rem;">Showing live session cells from the selected cycle and grouping.</span>
             <div class="filter-controls">
               <label for="filter-program" class="sr-only">Program:</label>
               <select id="filter-program" class="filter-select">
@@ -239,9 +249,13 @@
               <select id="filter-cohort" class="filter-select">
                 <option value="">All Cohorts</option>
               </select>
+              <label for="filter-room" class="sr-only">Room:</label>
+              <select id="filter-room" class="filter-select">
+                <option value="">All Rooms</option>
+              </select>
               <label for="filter-day" class="sr-only">Day:</label>
               <select id="filter-day" class="filter-select">
-                <option value="Monday">Monday</option>
+                <option value="Monday" selected>Monday</option>
                 <option value="Tuesday">Tuesday</option>
                 <option value="Wednesday">Wednesday</option>
                 <option value="Thursday">Thursday</option>
@@ -254,7 +268,7 @@
             <table class="timetable-table">
               <thead>
                 <tr>
-                  <th class="row-header">Cohort / Track</th>
+                  <th id="th-row-header" class="row-header">Cohort / Track</th>
                   <th>08:00<br><span style="font-size:0.65rem;">Period 1</span></th>
                   <th>09:00<br><span style="font-size:0.65rem;">Period 2</span></th>
                   <th>10:00<br><span style="font-size:0.65rem;">Period 3</span></th>
@@ -272,8 +286,8 @@
             </table>
           </div>
 
-          <div class="card-footer">
-            Source facts: 1,250 occurrences total • 680 odd-cycle • 570 even-cycle • Click any session card to view detailed metadata and verified data gap markers.
+          <div class="card-footer" id="timetable-footer">
+            Source facts: 1,250 occurrences total • Click any session card to view detailed metadata and verified profile markers.
           </div>
         </div>
       </section>
@@ -324,37 +338,73 @@
         </div>
       </section>
 
-      <!-- VIEW 4: ROOMS & FACILITIES -->
+      <!-- VIEW 4: ROOMS & FACILITIES (Polished Operational View) -->
       <section class="page-view" id="view-rooms">
         <div class="card">
           <div class="card-header">
             <div class="card-title-group">
               <h3>Rooms & Physical Facilities Inventory</h3>
-              <span class="illustrative-pill" style="background:#f0fdf4; color:#15803d; border-color:#bbf7d0;">86 Physical Rooms (rooms.csv)</span>
+              <span id="rooms-mode-pill" class="illustrative-pill" style="background:#f0fdf4; color:#15803d; border-color:#bbf7d0;">86 Physical Rooms • Demo Estimates Active</span>
             </div>
             <div class="toolbar-row" style="margin-bottom:0; gap:0.5rem;">
-              <input type="text" id="search-rooms" class="search-input" placeholder="Search room ID or block...">
+              <input type="text" id="search-rooms" class="search-input" placeholder="Search room ID, block, capability...">
               <select id="filter-room-type" class="filter-select">
                 <option value="">All Room Types</option>
                 <option value="classroom">Classroom (56)</option>
                 <option value="laboratory">Laboratory (20)</option>
                 <option value="assembly_hall">Assembly Hall (10)</option>
               </select>
+              <select id="filter-room-block" class="filter-select">
+                <option value="">All Building Blocks</option>
+                <option value="M">Block M (Main Tech)</option>
+                <option value="A">Block A (Academic)</option>
+                <option value="K">Block K (Computing)</option>
+                <option value="S">Block S (Science)</option>
+                <option value="L">Block L (Lecture)</option>
+                <option value="H">Block H (Humanities)</option>
+                <option value="C">Block C (Central)</option>
+                <option value="D">Block D (Data)</option>
+              </select>
             </div>
           </div>
 
           <div style="padding: 1.25rem;">
+            <!-- Inventory KPI Row -->
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:0.75rem; margin-bottom:1.25rem;">
+              <div class="kpi-card" style="padding:0.75rem;">
+                <div class="kpi-header" style="font-size:0.72rem;">Total Campus Rooms</div>
+                <div class="kpi-value" style="font-size:1.3rem;">86</div>
+                <div class="kpi-subtext">physical facilities in rooms.csv</div>
+              </div>
+              <div class="kpi-card" style="padding:0.75rem;">
+                <div class="kpi-header" style="font-size:0.72rem;">Specialized Labs</div>
+                <div class="kpi-value" style="font-size:1.3rem; color:#1e40af;">20</div>
+                <div class="kpi-subtext">hardware & software labs</div>
+              </div>
+              <div class="kpi-card" style="padding:0.75rem;">
+                <div class="kpi-header" style="font-size:0.72rem;">Standard Classrooms</div>
+                <div class="kpi-value" style="font-size:1.3rem; color:#15803d;">56</div>
+                <div class="kpi-subtext">lecture & tutorial rooms</div>
+              </div>
+              <div class="kpi-card" style="padding:0.75rem;">
+                <div class="kpi-header" style="font-size:0.72rem;">Assembly Halls</div>
+                <div class="kpi-value" style="font-size:1.3rem; color:#b45309;">10</div>
+                <div class="kpi-subtext">seminars & exams</div>
+              </div>
+            </div>
+
+            <!-- Rooms Table -->
             <div class="data-table-container">
               <table class="data-table">
                 <thead>
                   <tr>
                     <th>Room ID</th>
                     <th>Primary Type</th>
+                    <th>Building & Floor</th>
+                    <th>Capacity</th>
                     <th>Permitted Capabilities</th>
-                    <th>Building / Floor</th>
-                    <th>Room Capacity</th>
-                    <th>Student Count</th>
-                    <th>Facility Status</th>
+                    <th>Operational Status</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody id="rooms-table-tbody">
@@ -364,7 +414,7 @@
             </div>
           </div>
           <div class="card-footer">
-            Truth in data: 56 of 86 rooms have missing capacity in rooms.csv (labeled Unknown Data Gap) • 100% of sessions lack enrollment counts • Facilities operational status is unrecorded in facilities.csv.
+            Room Inventory Governance: In Synthetic Demo Profile, capacities and building wings use deterministic documented profiles. In Factual Mode, missing fields remain strictly Unknown.
           </div>
         </div>
       </section>
@@ -390,8 +440,8 @@
               <div>
                 <label style="font-weight:600; font-size:0.8rem; color:#334155; display:block; margin-bottom:0.25rem;">Academic Cycle:</label>
                 <select id="opt-cycle-select" class="filter-select" style="width:100%;">
-                  <option value="even" selected>Even Cycle (570 sessions) • Demonstrates >50% improvement</option>
-                  <option value="odd">Odd Cycle (680 sessions) • Demonstrates baseline fallback</option>
+                  <option value="even" selected>Even Cycle (570 sessions) • Demonstrates 60.52% reduction</option>
+                  <option value="odd">Odd Cycle (680 sessions) • Demonstrates safe baseline fallback</option>
                 </select>
               </div>
               <div>
@@ -404,7 +454,7 @@
               <div>
                 <label style="font-weight:600; font-size:0.8rem; color:#334155; display:block; margin-bottom:0.25rem;">Computing Lab Exception:</label>
                 <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.8rem; color:#475569; margin-top:0.4rem; cursor:pointer;">
-                  <input type="checkbox" id="opt-allow-exception"> Strict Matching (unchecked) vs Exception (checked)
+                  <input type="checkbox" id="opt-allow-exception"> Permit K701/M901 lab usage for computing sessions
                 </label>
               </div>
             </div>
@@ -442,8 +492,9 @@
                     <span id="opt-box-badge" class="badge-tag improved">Improved</span>
                   </div>
                   <div class="summary-metric-row"><span>Baseline proxy:</span> <span id="opt-metric-base" class="summary-metric-val">1,155 min</span></div>
-                  <div class="summary-metric-row"><span>Selected proxy:</span> <span id="opt-metric-sel" class="summary-metric-val">456 min</span></div>
-                  <div class="summary-metric-row"><span>Reduction:</span> <span id="opt-metric-red" class="summary-metric-val" style="color:#15803d;">699 min • 60.52%</span></div>
+                  <div class="summary-metric-row"><span>Raw CP-SAT candidate:</span> <span id="opt-metric-raw" class="summary-metric-val" style="color:#15803d;">456 min</span></div>
+                  <div class="summary-metric-row"><span>Selected system outcome:</span> <span id="opt-metric-sel" class="summary-metric-val">456 min</span></div>
+                  <div class="summary-metric-row"><span>Walking proxy reduction:</span> <span id="opt-metric-red" class="summary-metric-val" style="color:#15803d;">699 min • 60.52%</span></div>
                   <div class="summary-metric-row"><span>Selected allocator:</span> <span id="opt-metric-alloc" class="summary-metric-val">CP-SAT Optimizer</span></div>
                   <div class="summary-metric-row"><span>Pipeline status:</span> <span id="opt-metric-status" class="summary-metric-val" style="color:#15803d;">FEASIBLE (VALID_COMPLETE)</span></div>
                 </div>
@@ -546,18 +597,18 @@
                 <div class="summary-metric-row"><span>Independent validation:</span> <span class="summary-metric-val" style="color:#15803d;">FEASIBLE (VALID_COMPLETE)</span></div>
               </div>
 
-              <!-- Odd Cycle Deep Dive -->
+              <!-- Odd Cycle Deep Dive (Rebuilt per Defect 4) -->
               <div class="summary-cycle-box odd-cycle" style="margin-bottom:0;">
                 <div class="summary-box-header">
                   <span class="summary-box-title">ODD CYCLE (680 SESSIONS)</span>
-                  <span class="badge-tag baseline-kept">Baseline Fallback Retained</span>
+                  <span class="badge-tag" style="background:#dcfce7; color:#15803d; border:1px solid #bbf7d0; font-weight:700;">✓ SAFE FALLBACK — VALID BASELINE RETAINED</span>
                 </div>
                 <div class="summary-metric-row"><span>Baseline walking proxy:</span> <span class="summary-metric-val">1,248 min</span></div>
-                <div class="summary-metric-row"><span>Raw CP-SAT candidate:</span> <span class="summary-metric-val" style="color:#b91c1c;">1,286 min (+38 min)</span></div>
-                <div class="summary-metric-row"><span>Selected allocation:</span> <span class="summary-metric-val" style="color:#b45309;">Greedy Baseline (Fallback Retained)</span></div>
-                <div class="summary-metric-row"><span>Walking proxy reduction:</span> <span class="summary-metric-val">0 min (0.00%) — Protected</span></div>
-                <div class="summary-metric-row"><span>Same-room continuations:</span> <span class="summary-metric-val">288 baseline</span></div>
-                <div class="summary-metric-row"><span>Specialized room misuse:</span> <span class="summary-metric-val">0 vs 0</span></div>
+                <div class="summary-metric-row"><span>Raw CP-SAT candidate:</span> <span class="summary-metric-val" style="color:#b91c1c; font-weight:600;">1,286 min (+38 min • Rejected)</span></div>
+                <div class="summary-metric-row"><span>Selected system outcome:</span> <span class="summary-metric-val" style="color:#15803d; font-weight:700;">1,248 min (Protected Baseline)</span></div>
+                <div class="summary-metric-row"><span>Selected allocation:</span> <span class="summary-metric-val" style="color:#15803d;">Greedy Baseline (Fallback Retained)</span></div>
+                <div class="summary-metric-row"><span>Net candidate regression:</span> <span class="summary-metric-val" style="color:#15803d;">0 min (0.00%) — Zero Regression</span></div>
+                <div class="summary-metric-row"><span>Decision rationale:</span> <span class="summary-metric-val" style="font-size:0.72rem; color:#475569;">Candidate worsened objective; baseline fallback preserved safely</span></div>
                 <div class="summary-metric-row"><span>Independent validation:</span> <span class="summary-metric-val" style="color:#15803d;">FEASIBLE (VALID_COMPLETE)</span></div>
               </div>
             </div>
@@ -568,7 +619,7 @@
         </div>
       </section>
 
-      <!-- VIEW 8: VALIDATION INSPECTOR (Fixed per Defect 3) -->
+      <!-- VIEW 8: VALIDATION INSPECTOR -->
       <section class="page-view" id="view-validation">
         <div class="card">
           <div class="card-header">
@@ -584,7 +635,7 @@
           </div>
 
           <div style="padding: 1.25rem;">
-            <!-- Target Selection Toolbar (Defect 3 Fix) -->
+            <!-- Target Selection Toolbar -->
             <div style="display:flex; align-items:center; gap:1rem; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:0.85rem 1rem; margin-bottom:1.25rem; flex-wrap:wrap;">
               <div>
                 <label style="font-weight:600; font-size:0.8rem; color:#334155; margin-right:0.4rem;">Target Allocator:</label>
@@ -599,6 +650,13 @@
                 <select id="audit-cycle-select" class="filter-select">
                   <option value="even" selected>Even Cycle (570 sessions)</option>
                   <option value="odd">Odd Cycle (680 sessions)</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-weight:600; font-size:0.8rem; color:#334155; margin-right:0.4rem;">Evaluation Mode:</label>
+                <select id="audit-mode-select" class="filter-select">
+                  <option value="synthetic" selected>SYNTHETIC DEMO PROFILE</option>
+                  <option value="factual">FACTUAL MODE</option>
                 </select>
               </div>
             </div>
@@ -636,8 +694,8 @@
               </div>
               <div class="kpi-card" style="padding:0.75rem;">
                 <div class="kpi-header" style="font-size:0.72rem;">5. Physical Room Capacity</div>
-                <div id="audit-capacity" class="kpi-value unknown" style="font-size:1.15rem;">Unknown</div>
-                <div class="kpi-subtext">100% Insufficient Evidence</div>
+                <div id="audit-capacity" class="kpi-value" style="font-size:1.15rem; color:#64748b;">Not audited yet</div>
+                <div id="audit-capacity-sub" class="kpi-subtext">Evaluated per active profile</div>
               </div>
             </div>
 
@@ -681,6 +739,14 @@
           </div>
 
           <div style="padding: 1.25rem;">
+            <!-- Active Profile Overview -->
+            <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:1rem; margin-bottom:1.5rem;">
+              <div style="font-weight:700; font-size:0.9rem; color:#1e40af; margin-bottom:0.25rem;">Active Evaluation Profile: SYNTHETIC DEMO PROFILE</div>
+              <div style="font-size:0.8rem; color:#334155; line-height:1.5;">
+                In Synthetic Demo Profile, missing room capacities, session enrollments, and building wing mappings use deterministic documented assumptions in memory. The seven seed CSV datasets remain bit-for-bit unchanged. Factual Mode can be toggled in Settings or via the top header.
+              </div>
+            </div>
+
             <!-- Datasets Table -->
             <div style="font-weight:600; font-size:0.85rem; color:#334155; margin-bottom:0.75rem;">Registered Seed CSV Datasets</div>
             <div class="data-table-container" style="margin-bottom:1.5rem;">
@@ -740,11 +806,11 @@
             <div style="margin-bottom:1.25rem;">
               <label style="font-weight:600; font-size:0.85rem; color:#334155; display:block; margin-bottom:0.35rem;">Evaluation Mode:</label>
               <select id="settings-eval-mode" class="filter-select" style="width:100%;">
-                <option value="factual" selected>Factual Mode (Preserve Insufficient Evidence on Capacity)</option>
-                <option value="synthetic">Synthetic Demonstration Mode (Evaluates against test profile)</option>
+                <option value="synthetic" selected>Synthetic Demo Profile (Recommended for Prototype Evaluation)</option>
+                <option value="factual">Factual Mode (Preserve Insufficient Evidence on Capacity)</option>
               </select>
               <div style="font-size:0.75rem; color:#64748b; margin-top:0.25rem;">
-                Factual mode strictly rejects assuming missing capacities are zero or infinite.
+                Synthetic Demo Profile enables deterministic assumptions for missing capacities & enrollments.
               </div>
             </div>
 
@@ -760,10 +826,10 @@
             </div>
 
             <div style="margin-bottom:1.5rem;">
-              <label style="font-weight:600; font-size:0.85rem; color:#334155; display:block; margin-bottom:0.35rem;">Timetable Provenance Mode:</label>
+              <label style="font-weight:600; font-size:0.85rem; color:#334155; display:block; margin-bottom:0.35rem;">Default Timetable Source:</label>
               <select id="settings-provenance-mode" class="filter-select" style="width:100%;">
-                <option value="source" selected>Display Raw Source Timetable (sessions.csv)</option>
-                <option value="selected">Display Selected Allocation Output</option>
+                <option value="source" selected>Imported Source Timetable (sessions.csv)</option>
+                <option value="selected">Selected Allocation (Baseline / Optimizer)</option>
               </select>
             </div>
 
@@ -790,6 +856,13 @@
       <div id="modal-details">
         <!-- Populated on click -->
       </div>
+    </div>
+  </div>
+
+  <!-- Room Detail Drawer -->
+  <div id="room-drawer-backdrop" class="drawer-backdrop">
+    <div class="drawer-panel" id="room-drawer-content">
+      <!-- Populated dynamically on click -->
     </div>
   </div>
 

@@ -16,12 +16,39 @@ export const Api = {
   },
 
   /**
-   * Fetches room inventory (86 rooms).
+   * Fetches Synthetic Demo Profile documentation and parameters.
    */
-  async getRooms(roomType = null) {
-    const url = roomType ? `${API_BASE}/inventory/rooms?room_type=${encodeURIComponent(roomType)}` : `${API_BASE}/inventory/rooms`;
-    const res = await fetch(url);
+  async getProfile() {
+    const res = await fetch(`${API_BASE}/inventory/profile`);
+    if (!res.ok) throw new Error(`Profile API error: ${res.statusText}`);
+    return await res.json();
+  },
+
+  /**
+   * Fetches room inventory (86 rooms) with active mode support.
+   */
+  async getRooms(roomType = null, capability = null, buildingBlock = null, mode = 'synthetic') {
+    const params = new URLSearchParams();
+    if (roomType) params.append('room_type', roomType);
+    if (capability) params.append('capability', capability);
+    if (buildingBlock) params.append('building_block', buildingBlock);
+    if (mode) params.append('mode', mode);
+
+    const res = await fetch(`${API_BASE}/inventory/rooms?${params.toString()}`);
     if (!res.ok) throw new Error(`Rooms API error: ${res.statusText}`);
+    return await res.json();
+  },
+
+  /**
+   * Fetches detailed profile and occupancy schedule for a specific room.
+   */
+  async getRoomDetail(roomId, cycle = 'even', mode = 'synthetic') {
+    const params = new URLSearchParams();
+    params.append('academic_cycle', cycle);
+    params.append('mode', mode);
+
+    const res = await fetch(`${API_BASE}/inventory/room-detail/${encodeURIComponent(roomId)}?${params.toString()}`);
+    if (!res.ok) throw new Error(`Room detail error: ${res.statusText}`);
     return await res.json();
   },
 
@@ -47,28 +74,44 @@ export const Api = {
   },
 
   /**
-   * Fetches sessions.
+   * Fetches sessions occurrences.
    */
-  async getSessions(cycle = 'odd', program = null, cohortId = null, day = null) {
+  async getSessions(cycle = 'odd', program = null, cohortId = null, day = null, roomId = null, mode = 'synthetic') {
     const params = new URLSearchParams();
     if (cycle) params.append('academic_cycle', cycle);
     if (program) params.append('program', program);
     if (cohortId) params.append('cohort_id', cohortId);
     if (day) params.append('day', day);
+    if (roomId) params.append('room_id', roomId);
+    if (mode) params.append('mode', mode);
     const res = await fetch(`${API_BASE}/inventory/sessions?${params.toString()}`);
     if (!res.ok) throw new Error(`Sessions API error: ${res.statusText}`);
     return await res.json();
   },
 
   /**
-   * Fetches timetable weekly matrix.
+   * Fetches timetable weekly matrix rendered from selected allocation source.
    */
-  async getTimetableGrid(cycle = 'odd', cohortId = null, program = null, day = null) {
+  async getTimetableGrid({
+    cycle = 'even',
+    allocationSource = 'source',
+    groupBy = 'cohort',
+    cohortId = null,
+    program = null,
+    roomId = null,
+    day = 'Monday',
+    mode = 'synthetic'
+  } = {}) {
     const params = new URLSearchParams();
     params.append('academic_cycle', cycle);
+    params.append('allocation_source', allocationSource);
+    params.append('group_by', groupBy);
     if (cohortId) params.append('cohort_id', cohortId);
     if (program) params.append('program', program);
+    if (roomId) params.append('room_id', roomId);
     if (day) params.append('day', day);
+    if (mode) params.append('mode', mode);
+
     const res = await fetch(`${API_BASE}/inventory/timetables?${params.toString()}`);
     if (!res.ok) throw new Error(`Timetable API error: ${res.statusText}`);
     return await res.json();
@@ -90,7 +133,7 @@ export const Api = {
   /**
    * Runs Independent Validator audit on source timetable, baseline, or optimizer candidate.
    */
-  async runAudit(cycle = 'even', target = 'baseline', allowException = false, timeLimit = 10.0) {
+  async runAudit(cycle = 'even', target = 'baseline', allowException = false, timeLimit = 10.0, mode = 'synthetic') {
     const res = await fetch(`${API_BASE}/validation/audit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -98,7 +141,8 @@ export const Api = {
         academic_cycle: cycle,
         target: target,
         allow_computing_lab_exception: allowException,
-        time_limit_seconds: timeLimit
+        time_limit_seconds: timeLimit,
+        mode: mode
       })
     });
     if (!res.ok) throw new Error(`Validation API error: ${res.statusText}`);

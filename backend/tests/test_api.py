@@ -93,14 +93,15 @@ def test_inventory_sessions_cycles():
 
 def test_inventory_timetable_grid():
     """Verifies that /api/inventory/timetables returns a populated weekly grid."""
-    response = client.get("/api/inventory/timetables?academic_cycle=odd")
+    response = client.get("/api/inventory/timetables?academic_cycle=odd&day=Monday")
     assert response.status_code == 200
     data = response.json()
     assert data["academic_cycle"] == "odd"
-    assert data["total_sessions_filtered"] == 680
-    assert "Monday" in data["grid"]
-    assert "1" in data["grid"]["Monday"]
-    assert len(data["grid"]["Monday"]["1"]) > 0
+    assert data["total_sessions_filtered"] == 145
+    assert len(data["row_keys"]) > 0
+    first_rk = data["row_keys"][0]
+    assert first_rk in data["grid"]
+    assert 1 in data["grid"][first_rk] or "1" in data["grid"][first_rk]
 
 
 def test_allocation_baseline_execution():
@@ -215,3 +216,63 @@ def test_simulation_rollback():
     data = response.json()
     assert data["status"] == "rolled_back"
     assert data["success"] is True
+
+
+def test_inventory_profile_endpoint():
+    """Verifies synthetic demo profile documentation endpoint."""
+    response = client.get("/api/inventory/profile")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["profile_name"] == "SYNTHETIC DEMO PROFILE"
+    assert "classroom_capacity" in data["defaults"]
+    assert data["defaults"]["classroom_capacity"] == 65
+
+
+def test_inventory_room_detail_endpoint():
+    """Verifies room detail endpoint returns weekly occupancy schedule and utilization."""
+    response = client.get("/api/inventory/room-detail/M601?academic_cycle=even&mode=synthetic")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["room_id"] == "M601"
+    assert data["room_type"] == "laboratory"
+    assert "Block M" in data["building_block"]
+    assert "schedule" in data
+    assert "Monday" in data["schedule"]
+    assert data["total_weekly_periods"] == 45
+
+
+def test_inventory_timetable_allocation_source_baseline():
+    """Verifies timetable grid updates room assignments when allocation_source=baseline."""
+    response = client.get("/api/inventory/timetables?academic_cycle=even&allocation_source=baseline&day=Monday")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["allocation_source"] == "baseline"
+    assert "Selected Baseline Allocation" in data["allocation_status_label"]
+    assert len(data["days"]) == 5
+    assert len(data["periods"]) == 9
+
+
+def test_inventory_timetable_allocation_source_optimized_odd_preserves_fallback():
+    """Verifies timetable grid handles allocation_source=optimized on odd cycle."""
+    response = client.get("/api/inventory/timetables?academic_cycle=odd&allocation_source=optimized&day=Monday")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["allocation_source"] == "optimized"
+    if data["is_fallback"]:
+        assert "Safe Fallback" in data["allocation_status_label"]
+    else:
+        assert "Selected Optimized Allocation" in data["allocation_status_label"]
+
+
+def test_validation_audit_synthetic_mode_passes_capacity():
+    """Verifies that in synthetic demo profile, capacity evaluation passes cleanly."""
+    payload = {"academic_cycle": "even", "target": "baseline", "mode": "synthetic"}
+    response = client.post("/api/validation/audit", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["mode"] == "synthetic"
+    assert data["status"] == "valid_complete"
+    assert data["category_breakdown"]["capacity"]["fail"] == 0
+    assert data["category_breakdown"]["capacity"]["pass"] > 0
+    assert data["category_breakdown"]["capacity"]["insufficient_evidence"] == 0
+

@@ -16,16 +16,32 @@ class AuditRequest(BaseModel):
     assignments: Optional[Dict[str, str]] = Field(None, description="Optional assignment map to audit")
     allow_computing_lab_exception: bool = Field(False, description="Whether to allow computing lab exception")
     time_limit_seconds: float = Field(10.0, ge=1.0, le=10.0, description="Solver time limit if target is optimizer")
+    mode: str = Field("factual", description="'synthetic' or 'factual'")
 
 
 @router.post("/audit", response_model=Dict[str, Any])
 def audit_allocation(req: AuditRequest) -> Dict[str, Any]:
-    """Independently audits an allocation candidate or the source timetable against all 5 hard constraints."""
+    """Independently audits an allocation candidate or source timetable against hard constraints and mode profile."""
+    from backend.app.config import CapacityPolicyMode
+    from backend.app.services.synthetic_profile import SyntheticProfileService
+
     snapshot = DataLoaderService().load_snapshot()
-    validator = IndependentValidator(
-        snapshot=snapshot,
-        allow_computing_lab_exception=req.allow_computing_lab_exception,
-    )
+    if req.mode == "synthetic":
+        syn_caps = SyntheticProfileService.build_synthetic_room_capacities_map(snapshot)
+        syn_demands = SyntheticProfileService.build_synthetic_session_demands_map(snapshot)
+        validator = IndependentValidator(
+            snapshot=snapshot,
+            capacity_mode=CapacityPolicyMode.SYNTHETIC_EVALUATION,
+            allow_computing_lab_exception=req.allow_computing_lab_exception,
+            synthetic_room_capacities=syn_caps,
+            synthetic_session_demands=syn_demands,
+        )
+    else:
+        validator = IndependentValidator(
+            snapshot=snapshot,
+            capacity_mode=CapacityPolicyMode.FACTUAL,
+            allow_computing_lab_exception=req.allow_computing_lab_exception,
+        )
 
     target_display_name = "Custom Candidate Allocation"
     if req.assignments is not None:
@@ -98,6 +114,8 @@ def audit_allocation(req: AuditRequest) -> Dict[str, Any]:
         "target": req.target,
         "target_display_name": target_display_name,
         "academic_cycle": req.academic_cycle,
+        "mode": req.mode,
+        "mode_label": "SYNTHETIC DEMO PROFILE" if req.mode == "synthetic" else "FACTUAL MODE",
         "total_sessions_checked": summary.total_sessions_checked,
         "assigned_sessions_count": summary.assigned_sessions_count,
         "unassigned_sessions_count": summary.unassigned_sessions_count,
