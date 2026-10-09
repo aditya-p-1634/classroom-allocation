@@ -11,9 +11,11 @@ router = APIRouter(prefix="/validation", tags=["Validation Inspector"])
 
 
 class AuditRequest(BaseModel):
-    academic_cycle: str = Field("even", description="'odd', 'even', or 'all'")
-    assignments: Optional[Dict[str, str]] = Field(None, description="Optional assignment map to audit; if omitted, audits source timetable")
+    academic_cycle: str = Field("even", description="'odd' or 'even'")
+    target: str = Field("baseline", description="'source', 'baseline', 'optimizer', or 'custom'")
+    assignments: Optional[Dict[str, str]] = Field(None, description="Optional assignment map to audit")
     allow_computing_lab_exception: bool = Field(False, description="Whether to allow computing lab exception")
+    time_limit_seconds: float = Field(10.0, ge=1.0, le=10.0, description="Solver time limit if target is optimizer")
 
 
 @router.post("/audit", response_model=Dict[str, Any])
@@ -25,22 +27,40 @@ def audit_allocation(req: AuditRequest) -> Dict[str, Any]:
         allow_computing_lab_exception=req.allow_computing_lab_exception,
     )
 
+    target_display_name = "Custom Candidate Allocation"
     if req.assignments is not None:
         candidate = AllocationCandidate(
             academic_cycle=req.academic_cycle,
             assignments=req.assignments,
         )
-    else:
-        # Audit source timetable assignments directly
-        if req.academic_cycle in ["odd", "even"]:
-            cycle_sessions = [s for s in snapshot.sessions if s.academic_cycle == req.academic_cycle]
-        else:
-            cycle_sessions = snapshot.sessions
+        target_display_name = f"Custom Submitted Allocation • {req.academic_cycle.upper()} Cycle"
+    elif req.target == "baseline":
+        from backend.app.services.allocation_service import AllocationService
+        service = AllocationService()
+        base_res = service.run_baseline_allocation(
+            academic_cycle=req.academic_cycle,
+            allow_computing_lab_exception=req.allow_computing_lab_exception,
+        )
+        candidate = base_res.candidate
+        target_display_name = f"Greedy Baseline Allocation (P5) • {req.academic_cycle.upper()} Cycle"
+    elif req.target == "optimizer":
+        from backend.app.services.allocation_service import AllocationService
+        service = AllocationService()
+        opt_res = service.run_optimized_allocation(
+            academic_cycle=req.academic_cycle,
+            allow_computing_lab_exception=req.allow_computing_lab_exception,
+            time_limit_seconds=req.time_limit_seconds,
+        )
+        candidate = opt_res.candidate
+        target_display_name = f"CP-SAT Optimized Allocation (P6) • {req.academic_cycle.upper()} Cycle"
+    else:  # source
+        cycle_sessions = [s for s in snapshot.sessions if s.academic_cycle == req.academic_cycle]
         source_assignments = {s.session_id: s.assigned_room_id for s in cycle_sessions if s.assigned_room_id}
         candidate = AllocationCandidate(
             academic_cycle=req.academic_cycle,
             assignments=source_assignments,
         )
+        target_display_name = f"Original Source Timetable (Seed Data) • {req.academic_cycle.upper()} Cycle"
 
     summary = validator.validate_candidate(candidate)
 
@@ -75,6 +95,9 @@ def audit_allocation(req: AuditRequest) -> Dict[str, Any]:
         "status": summary.status.value,
         "is_valid": summary.is_valid,
         "is_complete": summary.is_complete,
+        "target": req.target,
+        "target_display_name": target_display_name,
+        "academic_cycle": req.academic_cycle,
         "total_sessions_checked": summary.total_sessions_checked,
         "assigned_sessions_count": summary.assigned_sessions_count,
         "unassigned_sessions_count": summary.unassigned_sessions_count,

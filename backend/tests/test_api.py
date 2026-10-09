@@ -43,6 +43,13 @@ def test_status_endpoint_data_integrity():
     assert summary["cohorts_count"] == 45
     assert summary["rooms_inventory_count"] == 86
 
+    # Verify Schedule Slot Coverage metrics (Defect 1)
+    slot_cov = summary["slot_coverage"]
+    assert slot_cov["total_slots"] == 6880
+    assert slot_cov["occupied_slots"] == 1490
+    assert slot_cov["unscheduled_slots"] == 2990
+    assert slot_cov["unknown_slots"] == 2400
+
 
 def test_inventory_rooms_endpoint():
     """Verifies that /api/inventory/rooms returns exactly 86 physical rooms."""
@@ -140,15 +147,30 @@ def test_allocation_compare_odd_cycle_preserves_baseline_protection():
         assert data["improvement_achieved"] is True
 
 
-def test_validation_audit_endpoint():
-    """Verifies independent validator audit endpoint on source timetable."""
-    payload = {"academic_cycle": "even"}
+def test_validation_audit_baseline_target():
+    """Verifies independent validator audit on greedy baseline allocation (P5) returns valid_complete."""
+    payload = {"academic_cycle": "even", "target": "baseline"}
     response = client.post("/api/validation/audit", json=payload)
     assert response.status_code == 200
     data = response.json()
+    assert data["target"] == "baseline"
+    assert data["status"] == "valid_complete"
+    assert data["fail_count"] == 0
     assert data["total_sessions_checked"] == 570
     assert "room_time_exclusivity" in data["category_breakdown"]
-    assert "capacity" in data["category_breakdown"]
+    assert data["category_breakdown"]["room_capability"]["fail"] == 0
+
+
+def test_validation_audit_source_target_truthfully_reports_anomalies():
+    """Verifies independent validator audit on raw source timetable catches known room-type anomalies (Defect 3)."""
+    payload = {"academic_cycle": "even", "target": "source"}
+    response = client.post("/api/validation/audit", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["target"] == "source"
+    assert data["status"] == "invalid_candidate"
+    assert data["fail_count"] == 8
+    assert data["category_breakdown"]["room_capability"]["fail"] == 8
 
 
 def test_simulation_events_catalog():

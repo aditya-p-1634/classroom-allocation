@@ -48,6 +48,22 @@ def get_system_status() -> Dict[str, Any]:
     programs = sorted(list(set(s.program for s in snapshot.sessions if s.program)))
     cohorts = sorted(list(set(s.cohort_id for s in snapshot.sessions if s.cohort_id)))
 
+    # Compute Schedule Slot Coverage directly from availability.csv records
+    total_slots = len(snapshot.availability)
+    occupied_slots = sum(1 for a in snapshot.availability if a.status == "occupied")
+    unscheduled_slots = sum(1 for a in snapshot.availability if a.status == "not_scheduled_in_provided_timetable")
+    unknown_slots = sum(1 for a in snapshot.availability if a.status == "unknown")
+
+    cycle_coverage = {}
+    for cycle in ["odd", "even"]:
+        c_records = [a for a in snapshot.availability if a.academic_cycle == cycle]
+        cycle_coverage[cycle] = {
+            "total_slots": len(c_records),
+            "occupied_slots": sum(1 for a in c_records if a.status == "occupied"),
+            "unscheduled_slots": sum(1 for a in c_records if a.status == "not_scheduled_in_provided_timetable"),
+            "unknown_slots": sum(1 for a in c_records if a.status == "unknown"),
+        }
+
     return {
         "status": "operational",
         "governing_document_version": "0.2.5",
@@ -74,8 +90,17 @@ def get_system_status() -> Dict[str, Any]:
             "cohorts_count": len(cohorts),
             "cohorts": cohorts,
             "rooms_inventory_count": len(snapshot.rooms),
-            "room_availability_status": "Unknown (Insufficient Evidence)",
+            "room_availability_status": "Indexed (6,880 source records)",
             "student_count_status": "Unknown (Data Gap)",
+            "slot_coverage": {
+                "total_slots": total_slots,
+                "occupied_slots": occupied_slots,
+                "unscheduled_slots": unscheduled_slots,
+                "unknown_slots": unknown_slots,
+                "provenance_note": "Source records indexed from availability.csv",
+                "disclaimer": "Unscheduled slots indicate no session is scheduled in the provided timetable; they are not automatically confirmed free or available rooms.",
+                "cycle_breakdown": cycle_coverage,
+            },
         },
         "project_phases": [
             {"id": "P4", "name": "Build Preparation", "status": "completed", "verified": True},

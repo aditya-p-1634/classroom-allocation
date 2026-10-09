@@ -88,13 +88,18 @@ export const Api = {
   },
 
   /**
-   * Runs Independent Validator audit on source timetable or candidate.
+   * Runs Independent Validator audit on source timetable, baseline, or optimizer candidate.
    */
-  async runAudit(cycle = 'even') {
+  async runAudit(cycle = 'even', target = 'baseline', allowException = false, timeLimit = 10.0) {
     const res = await fetch(`${API_BASE}/validation/audit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ academic_cycle: cycle })
+      body: JSON.stringify({
+        academic_cycle: cycle,
+        target: target,
+        allow_computing_lab_exception: allowException,
+        time_limit_seconds: timeLimit
+      })
     });
     if (!res.ok) throw new Error(`Validation API error: ${res.statusText}`);
     return await res.json();
