@@ -199,7 +199,18 @@ class CPSATRoomOptimizer:
         pre_reserved_assignments = pre_reserved_assignments or {}
         blocked_room_periods = blocked_room_periods or set()
         target_reassignments = target_reassignments or {}
-
+        # Primal warm-start hint generation from baseline greedy allocator when not explicitly provided
+        if not warm_start_hints and not pre_reserved_assignments and not blocked_room_periods:
+            try:
+                from backend.app.core.baseline_allocator import BaselineGreedyAllocator
+                hint_alloc = BaselineGreedyAllocator(
+                    snapshot=self.snapshot,
+                    allow_computing_lab_exception=self.allow_computing_lab_exception,
+                )
+                hint_cand = hint_alloc.allocate(academic_cycle=academic_cycle)
+                warm_start_hints = hint_cand.assignments
+            except Exception:
+                warm_start_hints = {}
         warm_start_hints = warm_start_hints or {}
 
         # 1. Map existing occupancy from pre-reserved assignments
@@ -254,9 +265,9 @@ class CPSATRoomOptimizer:
                     model.Add(dummy_infeasible == 0)
 
         # Apply primal warm-start hints
-        for s_id, r_id in warm_start_hints.items():
-            if (s_id, r_id) in x:
-                model.AddHint(x[(s_id, r_id)], 1)
+        for s_id, target_r_id in warm_start_hints.items():
+            if (s_id, target_r_id) in x:
+                model.AddHint(x[(s_id, target_r_id)], 1)
 
         # 3. Room-Time Exclusivity Constraint
         # Group sessions by (day, period)

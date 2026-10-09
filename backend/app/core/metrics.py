@@ -106,6 +106,13 @@ class MetricComparison(BaseModel):
     baseline_execution_ms: float
     optimized_execution_ms: float
 
+    # Raw Solver Status & Baseline Protection (Phase P6 Remediation)
+    raw_solver_status: Optional[str] = Field(None, description="Actual termination status of CP-SAT solver (OPTIMAL, FEASIBLE, etc.)")
+    raw_solver_walking_time: Optional[float] = Field(None, description="Raw walking-time metric from the raw solver candidate")
+    selected_allocator_name: Optional[str] = Field(None, description="Allocator whose candidate was selected as the best valid output")
+    fallback_to_baseline: bool = Field(False, description="True if raw candidate was worse than baseline and baseline was retained")
+    improvement_achieved: bool = Field(True, description="True if solver achieved a genuine walking-time improvement over baseline")
+
     evidence_limitations: List[str] = Field(default_factory=list)
 
 
@@ -286,6 +293,11 @@ class MetricsCalculator:
         self,
         baseline_metrics: AllocationMetrics,
         optimized_metrics: AllocationMetrics,
+        raw_solver_status: Optional[str] = None,
+        raw_solver_walking_time: Optional[float] = None,
+        selected_allocator_name: Optional[str] = None,
+        fallback_to_baseline: bool = False,
+        improvement_achieved: Optional[bool] = None,
     ) -> MetricComparison:
         """Compares baseline vs optimized solutions and calculates genuine deltas."""
         base_t = baseline_metrics.total_walking_time_minutes
@@ -293,6 +305,9 @@ class MetricsCalculator:
 
         delta_t = round(base_t - opt_t, 2)
         pct_t = round((delta_t / base_t * 100.0), 2) if base_t > 0 else 0.0
+
+        if improvement_achieved is None:
+            improvement_achieved = (delta_t > 0.0 and not fallback_to_baseline)
 
         limitations = [
             "Walking times are calculated using the synthetic prefix-distance matrix (3.0/8.0 min proxy), not GPS-measured routes.",
@@ -313,6 +328,11 @@ class MetricsCalculator:
             optimized_specialized_misuse=optimized_metrics.specialized_room_misuse_count,
             baseline_execution_ms=baseline_metrics.execution_time_ms,
             optimized_execution_ms=optimized_metrics.execution_time_ms,
+            raw_solver_status=raw_solver_status,
+            raw_solver_walking_time=raw_solver_walking_time,
+            selected_allocator_name=selected_allocator_name or (baseline_metrics.allocator_name if fallback_to_baseline else optimized_metrics.allocator_name),
+            fallback_to_baseline=fallback_to_baseline,
+            improvement_achieved=improvement_achieved,
             evidence_limitations=limitations,
         )
 

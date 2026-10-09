@@ -254,3 +254,92 @@ def test_optimizer_prefers_0min_over_3min_transition(snapshot: DatasetSnapshot):
 
     assert candidate.metadata["solver_status"] in ["OPTIMAL", "FEASIBLE"]
     assert candidate.assignments.get("HANDCALC_S2") == "A105"
+
+
+def test_travel_matrix_exact_agreement_with_cluster_formulation(snapshot: DatasetSnapshot):
+    """Verifies that all 3,655 room pairs in TravelMatrixService match the compact cluster model."""
+    from backend.app.services.travel_matrix import TravelMatrixService
+    optimizer = CPSATRoomOptimizer(snapshot)
+    clusters = optimizer._get_travel_clusters()
+    travel_svc = TravelMatrixService(snapshot.travel_times)
+
+    mismatches = []
+    for r1 in snapshot.rooms:
+        for r2 in snapshot.rooms:
+            if r1.room_id == r2.room_id:
+                assert travel_svc.get_travel_time(r1.room_id, r2.room_id) == 0.0
+            else:
+                actual = travel_svc.get_travel_time(r1.room_id, r2.room_id)
+                expected = 3.0 if clusters[r1.room_id] == clusters[r2.room_id] else 8.0
+                if actual != expected:
+                    mismatches.append((r1.room_id, r2.room_id, actual, expected))
+
+    assert len(mismatches) == 0, f"Found {len(mismatches)} cluster-matrix discrepancies."
+
+
+def test_baseline_protection_retains_baseline_when_solver_worse(snapshot: DatasetSnapshot):
+    """Verifies that a solver candidate worse than baseline is never reported as an optimization improvement."""
+    from backend.app.core.metrics import AllocationMetrics, MetricsCalculator
+    calc = MetricsCalculator(snapshot)
+
+    # Synthetic baseline metrics: 1000 min walking time
+    base_m = AllocationMetrics(
+        allocator_name="BaselineGreedyAllocator",
+        academic_cycle="odd",
+        evaluation_mode="factual",
+        total_walking_time_minutes=1000.0,
+        same_room_continuity_count=200,
+    )
+    # Synthetic raw solver metrics that timed out into worse local state: 1200 min
+    raw_opt_m = AllocationMetrics(
+        allocator_name="CPSATRoomOptimizer",
+        academic_cycle="odd",
+        evaluation_mode="factual",
+        total_walking_time_minutes=1200.0,
+        same_room_continuity_count=180,
+    )
+
+    # When solver candidate is worse, baseline must be retained
+    fallback = (raw_opt_m.total_walking_time_minutes > base_m.total_walking_time_minutes)
+    selected_m = base_m if fallback else raw_opt_m
+
+    comp = calc.compare_solutions(
+        baseline_metrics=base_m,
+        optimized_metrics=selected_m,
+        raw_solver_status="FEASIBLE",
+        raw_solver_walking_time=raw_opt_m.total_walking_time_minutes,
+        selected_allocator_name="BaselineGreedyAllocator_Retained" if fallback else "CPSATRoomOptimizer",
+        fallback_to_baseline=fallback,
+    )
+
+    assert comp.fallback_to_baseline is True
+    assert comp.improvement_achieved is False
+    assert comp.raw_solver_status == "FEASIBLE"
+    assert comp.raw_solver_walking_time == 1200.0
+    assert comp.optimized_walking_time == 1000.0  # Retains baseline!
+    assert comp.walking_time_reduction_minutes == 0.0
+    assert comp.walking_time_reduction_percentage == 0.0
+    assert comp.selected_allocator_name == "BaselineGreedyAllocator_Retained"
+
+
+def test_odd_cycle_optimizer_baseline_protection_and_validity(snapshot: DatasetSnapshot):
+    """Verifies odd-cycle comparison preserves valid baseline and truthful reporting."""
+    alloc_service = AllocationService(snapshot)
+    comp = alloc_service.compare_baseline_and_optimizer(
+        academic_cycle="odd",
+        time_limit_seconds=10.0,
+    )
+
+    assert comp.baseline_walking_time == 1248.0
+    # Selected walking time must be <= baseline (never worse)
+    assert comp.optimized_walking_time <= comp.baseline_walking_time
+    assert comp.walking_time_reduction_minutes >= 0.0
+    assert comp.raw_solver_status in ["FEASIBLE", "OPTIMAL"]
+    if comp.fallback_to_baseline:
+        assert comp.selected_allocator_name == "BaselineGreedyAllocator_Retained"
+        assert comp.raw_solver_walking_time is not None
+        assert comp.improvement_achieved is False
+    else:
+        assert comp.selected_allocator_name == "CPSATRoomOptimizer"
+        assert comp.improvement_achieved is True
+

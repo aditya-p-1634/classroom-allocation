@@ -200,6 +200,7 @@ class AllocationService:
         synthetic_room_capacities: Optional[Dict[str, int]] = None,
         synthetic_session_demands: Optional[Dict[str, int]] = None,
         time_limit_seconds: float = 10.0,
+        warm_start_hints: Optional[Dict[str, str]] = None,
     ) -> AllocationResult:
         """Executes CP-SAT mathematical optimization and independently validates candidate."""
         optimizer = CPSATRoomOptimizer(
@@ -213,6 +214,7 @@ class AllocationService:
         return optimizer.solve_and_validate(
             academic_cycle=academic_cycle,
             time_limit_seconds=time_limit_seconds,
+            warm_start_hints=warm_start_hints,
         )
 
     def compare_baseline_and_optimizer(
@@ -250,6 +252,7 @@ class AllocationService:
             synthetic_room_capacities=synthetic_room_capacities,
             synthetic_session_demands=synthetic_session_demands,
             time_limit_seconds=time_limit_seconds,
+            warm_start_hints=baseline_res.candidate.assignments if baseline_res.validation.is_valid else None,
         )
         opt_metrics = calc.calculate_metrics(
             candidate=opt_res.candidate,
@@ -260,7 +263,33 @@ class AllocationService:
             execution_time_ms=opt_res.execution_time_ms,
         )
 
-        return calc.compare_allocations(baseline_metrics, opt_metrics)
+        # Check whether solver candidate achieves genuine improvement and passes validation
+        raw_solver_status = opt_res.candidate.metadata.get("solver_status")
+        raw_walking_time = opt_metrics.total_walking_time_minutes
+
+        is_solver_valid = opt_res.validation.is_valid and opt_res.validation.is_complete
+        is_baseline_valid = baseline_res.validation.is_valid and baseline_res.validation.is_complete
+
+        # Protect baseline when solver candidate is worse or invalid
+        fallback_to_baseline = False
+        selected_metrics = opt_metrics
+
+        if is_baseline_valid:
+            if not is_solver_valid or raw_walking_time > baseline_metrics.total_walking_time_minutes:
+                fallback_to_baseline = True
+                selected_metrics = baseline_metrics
+
+        improvement_achieved = (not fallback_to_baseline and raw_walking_time < baseline_metrics.total_walking_time_minutes)
+
+        return calc.compare_allocations(
+            baseline_metrics=baseline_metrics,
+            optimized_metrics=selected_metrics,
+            raw_solver_status=raw_solver_status,
+            raw_solver_walking_time=raw_walking_time,
+            selected_allocator_name=selected_metrics.allocator_name if not fallback_to_baseline else "BaselineGreedyAllocator_Retained",
+            fallback_to_baseline=fallback_to_baseline,
+            improvement_achieved=improvement_achieved,
+        )
 
     def run_disruption_simulation(
         self,
