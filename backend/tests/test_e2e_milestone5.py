@@ -466,3 +466,142 @@ def test_e2e_regression_existing_endpoints_functional(client):
     events_resp = client.get("/api/simulation/events")
     assert events_resp.status_code == 200
     assert len(events_resp.json()) >= 5
+
+
+# ==============================================================================
+# 7. Milestone 5 Defect Prevention: Provenance, Filters, Spans & Isolation
+# ==============================================================================
+
+def test_e2e_semester_iii_fixtures_endpoint(client):
+    """Verifies that the /api/upload/fixtures/semester_iii endpoint delivers all 5 real files (140 rows)."""
+    resp = client.get("/api/upload/fixtures/semester_iii")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["academic_cycle"] == "odd"
+    assert data["total_files"] == 5
+    filenames = {f["filename"] for f in data["files"]}
+    assert filenames == set(REAL_SEMESTER_III_FILES)
+
+    total_data_rows = 0
+    for f in data["files"]:
+        lines = [l for l in f["content"].strip().splitlines() if l.strip()]
+        total_data_rows += len(lines) - 1  # Subtract header
+
+    assert total_data_rows == 140
+
+
+def test_e2e_real_course_names_and_row_provenance_in_grid(client, real_semester_iii_payloads):
+    """Verifies that real source course names, row numbers, and multi-period spans survive into grid."""
+    payload_dicts = [p.model_dump() for p in real_semester_iii_payloads]
+    pref = client.post("/api/upload/preflight", json={"files": payload_dicts}).json()
+    run_id = pref["run_id"]
+
+    client.post(
+        "/api/upload/allocate",
+        json={"run_id": run_id, "evaluation_mode": "synthetic", "time_limit_seconds": 5.0},
+    )
+
+    # Check Monday grid for Computational Finance
+    grid_resp = client.get(f"/api/upload/timetable/{run_id}?group_by=cohort&day=Monday&program=Computational%20Finance")
+    assert grid_resp.status_code == 200
+    grid_data = grid_resp.json()
+
+    cohort_slots = grid_data["grid"].get("odd_sem3_CF", {})
+    # Period 1 should contain R Lab (multi-period lab spanning 1-2)
+    p1_sessions = cohort_slots.get("1", [])
+    assert len(p1_sessions) > 0
+    r_lab = p1_sessions[0]
+    assert r_lab["course"] == "R Lab"
+    assert r_lab["program"] == "Computational Finance"
+    assert r_lab["start_period"] == 1
+    assert r_lab["end_period"] == 2
+    assert r_lab["duration_periods"] == 2
+    assert r_lab["is_multi_period"] is True
+    assert r_lab["source_file"] == "computational_finance_semester_iii.csv"
+    assert r_lab["source_row"] == 2  # First data row
+    assert r_lab["day"] == "Monday"
+
+    # Period 3 should contain Corporate Finance & Capital Markets
+    p3_sessions = cohort_slots.get("3", [])
+    assert len(p3_sessions) > 0
+    corp_fin = p3_sessions[0]
+    assert corp_fin["course"] == "Corporate Finance & Capital Markets"
+    assert corp_fin["duration_periods"] == 1
+    assert corp_fin["is_multi_period"] is False
+    assert corp_fin["source_row"] == 3
+
+    # Period 4 should contain Statistics
+    p4_sessions = cohort_slots.get("4", [])
+    assert len(p4_sessions) > 0
+    assert p4_sessions[0]["course"] == "Statistics"
+
+
+def test_e2e_grid_filtering_preservation(client, real_semester_iii_payloads):
+    """Verifies that Program, Cohort, Room, and Day filters preserve matching records without omission."""
+    payload_dicts = [p.model_dump() for p in real_semester_iii_payloads]
+    pref = client.post("/api/upload/preflight", json={"files": payload_dicts}).json()
+    run_id = pref["run_id"]
+
+    client.post(
+        "/api/upload/allocate",
+        json={"run_id": run_id, "evaluation_mode": "synthetic", "time_limit_seconds": 5.0},
+    )
+
+    # 1. Program Filter: Cyber Security
+    cs_resp = client.get(f"/api/upload/timetable/{run_id}?group_by=cohort&day=Monday&program=Cyber%20Security")
+    assert cs_resp.status_code == 200
+    cs_data = cs_resp.json()
+    assert cs_data["row_keys"] == ["odd_sem3_CY"]
+    for p, sl in cs_data["grid"]["odd_sem3_CY"].items():
+        for s in sl:
+            assert s["program"] == "Cyber Security"
+
+    # 2. Room Filter: Select first allocated room
+    rooms_list = cs_data.get("rooms", [])
+    assert len(rooms_list) > 0
+    sample_room = rooms_list[0]
+
+    room_resp = client.get(f"/api/upload/timetable/{run_id}?group_by=room&day=Monday&room_id={sample_room}")
+    assert room_resp.status_code == 200
+    room_data = room_resp.json()
+    for rk, slots in room_data["grid"].items():
+        assert rk == sample_room
+        for p, sl in slots.items():
+            for s in sl:
+                assert s["assigned_room_id"] == sample_room
+
+    # 3. All Days View
+    all_days_resp = client.get(f"/api/upload/timetable/{run_id}?group_by=cohort&day=all&program=Computational%20Finance")
+    assert all_days_resp.status_code == 200
+    all_data = all_days_resp.json()
+    assert all_data["target_day"] == "All Days"
+    assert len(all_data["row_keys"]) == 5  # Mon, Tue, Wed, Thu, Fri for CF
+    assert all("odd_sem3_CF" in rk for rk in all_data["row_keys"])
+
+
+def test_e2e_run_isolation_no_cross_contamination(client, real_semester_iii_payloads):
+    """Verifies that independent upload runs maintain complete isolation without state leakage."""
+    # Run 1: Real Semester III (140 sessions)
+    payload_dicts = [p.model_dump() for p in real_semester_iii_payloads]
+    run1_id = client.post("/api/upload/preflight", json={"files": payload_dicts}).json()["run_id"]
+    client.post("/api/upload/allocate", json={"run_id": run1_id, "evaluation_mode": "synthetic", "time_limit_seconds": 3.0})
+
+    # Run 2: Tiny mock dataset (2 sessions)
+    tiny_csv = """program,cohort_id,course,academic_cycle,day,start_period,end_period,required_room_type
+Isolated Program,odd_iso_1,Unique Isolated Course A,odd,Monday,1,1,classroom
+Isolated Program,odd_iso_1,Unique Isolated Course B,odd,Monday,2,2,classroom
+"""
+    run2_id = client.post("/api/upload/preflight", json={"files": [{"filename": "tiny.csv", "content": tiny_csv}]}).json()["run_id"]
+    client.post("/api/upload/allocate", json={"run_id": run2_id, "evaluation_mode": "synthetic", "time_limit_seconds": 3.0})
+
+    # Verify Run 1 is 140 sessions and does not contain "Unique Isolated Course A"
+    run1_export = client.get(f"/api/upload/export/{run1_id}?format=csv").text
+    assert len(run1_export.strip().splitlines()) == 141
+    assert "Unique Isolated Course" not in run1_export
+    assert "Computational Finance" in run1_export
+
+    # Verify Run 2 is strictly 2 sessions
+    run2_export = client.get(f"/api/upload/export/{run2_id}?format=csv").text
+    assert len(run2_export.strip().splitlines()) == 3
+    assert "Unique Isolated Course A" in run2_export
+    assert "Computational Finance" not in run2_export

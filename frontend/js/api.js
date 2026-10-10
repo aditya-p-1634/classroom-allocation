@@ -239,5 +239,18 @@ export const Api = {
    */
   getExportUrl(runId, format = 'csv') {
     return `${API_BASE}/upload/export/${encodeURIComponent(runId)}?format=${encodeURIComponent(format)}`;
+  },
+
+  /**
+   * Fetches the five canonical Semester III raw timetable CSV fixtures.
+   */
+  async getSemesterIIIFixtures() {
+    const res = await fetch(`${API_BASE}/upload/fixtures/semester_iii`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `Fixtures error: ${res.statusText}`);
+    }
+    return await res.json();
   }
 };
+

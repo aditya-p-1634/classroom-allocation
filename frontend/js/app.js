@@ -41,9 +41,12 @@ class ClassroomIQApp {
       timetableGroupBy: 'cohort',
       filterProgram: '',
       filterCohort: '',
+      filterRoom: '',
       selectedPreviewFile: null,
+      isDemoData: false,
     };
   }
+
 
   async init() {
     this.updateModeUI();
@@ -1365,6 +1368,7 @@ class ClassroomIQApp {
     const dropzone = document.getElementById('upload-dropzone');
     const fileInput = document.getElementById('upload-file-input');
     const btnBrowse = document.getElementById('btn-browse-files');
+    const btnRealSemester3 = document.getElementById('btn-load-real-semester3');
     const btnSampleMSc = document.getElementById('btn-load-sample-msc');
     const btnReset = document.getElementById('btn-upload-reset');
     const previewSelect = document.getElementById('preview-file-select');
@@ -1378,6 +1382,7 @@ class ClassroomIQApp {
     const groupBySelect = document.getElementById('upload-group-by');
     const filterProg = document.getElementById('upload-filter-program');
     const filterCohort = document.getElementById('upload-filter-cohort');
+    const filterRoom = document.getElementById('upload-filter-room');
     const btnDownloadCsv = document.getElementById('btn-download-csv');
     const btnDownloadZip = document.getElementById('btn-download-zip');
     const btnCloseModal = document.getElementById('btn-close-upload-modal');
@@ -1401,7 +1406,7 @@ class ClassroomIQApp {
         }
       });
       dropzone.addEventListener('click', (e) => {
-        if (e.target !== btnSampleMSc && fileInput) {
+        if (e.target !== btnSampleMSc && e.target !== btnRealSemester3 && fileInput) {
           fileInput.click();
         }
       });
@@ -1422,7 +1427,15 @@ class ClassroomIQApp {
       });
     }
 
-    // Load Sample 5 M.Sc. Programs
+    // Load Real Semester III Timetables (140 Sessions)
+    if (btnRealSemester3) {
+      btnRealSemester3.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.loadRealSemesterIIIFixtures();
+      });
+    }
+
+    // Load Quick Demo Sample (25 Mock Sessions)
     if (btnSampleMSc) {
       btnSampleMSc.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1501,6 +1514,8 @@ class ClassroomIQApp {
     if (filterProg) {
       filterProg.addEventListener('change', (e) => {
         this.uploadState.filterProgram = e.target.value;
+        this.uploadState.filterCohort = '';
+        if (filterCohort) filterCohort.value = '';
         this.loadUploadTimetable();
       });
     }
@@ -1508,6 +1523,13 @@ class ClassroomIQApp {
     if (filterCohort) {
       filterCohort.addEventListener('change', (e) => {
         this.uploadState.filterCohort = e.target.value;
+        this.loadUploadTimetable();
+      });
+    }
+
+    if (filterRoom) {
+      filterRoom.addEventListener('change', (e) => {
+        this.uploadState.filterRoom = e.target.value;
         this.loadUploadTimetable();
       });
     }
@@ -1548,6 +1570,7 @@ class ClassroomIQApp {
   async handleUploadFiles(fileList) {
     if (!fileList || fileList.length === 0) return;
 
+    this.uploadState.isDemoData = false;
     let addedCount = 0;
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
@@ -1556,7 +1579,10 @@ class ClassroomIQApp {
         continue;
       }
 
-      const text = await this.readFileAsText(file);
+      let text = await this.readFileAsText(file);
+      if (text && text.charCodeAt(0) === 0xFEFF) {
+        text = text.slice(1);
+      }
       const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
       if (lines.length === 0) {
         this.showToast(`Empty CSV file skipped: ${file.name}`, 'warning');
@@ -1586,23 +1612,66 @@ class ClassroomIQApp {
     }
 
     if (addedCount > 0) {
+      const totalRows = this.uploadState.files.reduce((acc, f) => acc + f.rowCount, 0);
       this.renderUploadedFilesList();
       this.renderUploadPreviewAndMappings();
       this.updateUploadStepper(2);
-      this.showToast(`Successfully added ${addedCount} timetable file(s).`, 'success');
+      this.showToast(`Successfully added ${addedCount} timetable file(s) (${totalRows} total sessions).`, 'success');
     }
   }
 
   readFileAsText(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target.result);
+      reader.onload = (e) => {
+        let text = e.target.result;
+        if (text && text.charCodeAt(0) === 0xFEFF) {
+          text = text.slice(1);
+        }
+        resolve(text);
+      };
       reader.onerror = (e) => reject(e);
       reader.readAsText(file);
     });
   }
 
+  async loadRealSemesterIIIFixtures() {
+    try {
+      this.uploadState.isDemoData = false;
+      const data = await Api.getSemesterIIIFixtures();
+      if (!data || !data.files || data.files.length === 0) {
+        throw new Error('No fixture files returned from server.');
+      }
+
+      this.uploadState.files = data.files.map(f => {
+        let text = f.content;
+        if (text && text.charCodeAt(0) === 0xFEFF) {
+          text = text.slice(1);
+        }
+        const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
+        return {
+          filename: f.filename,
+          size: f.content.length,
+          content: text,
+          rowCount: Math.max(0, lines.length - 1),
+          headers: lines[0].split(',').map(h => h.trim().replace(/^["']|["']$/g, '')),
+          lines: lines
+        };
+      });
+
+      const totalRows = this.uploadState.files.reduce((acc, f) => acc + f.rowCount, 0);
+      this.renderUploadedFilesList();
+      this.renderUploadPreviewAndMappings();
+      this.updateUploadStepper(2);
+      this.showToast(`Loaded ${data.files.length} real Semester III timetables (${totalRows} session occurrences across 5 programs).`, 'success');
+    } catch (err) {
+      this.showToast(`Failed to load Semester III fixtures: ${err.message}`, 'danger');
+    }
+  }
+
   loadSampleMScPrograms() {
+    this.uploadState.isDemoData = true;
+
     const cyberCsv = `program,cohort_id,course,academic_cycle,day,start_period,end_period,required_room_type
 M.Sc. Cyber Security,odd_sem3_CY,Network Security Lab,odd,Monday,1,2,laboratory
 M.Sc. Cyber Security,odd_sem3_CY,Discrete Mathematics,odd,Monday,3,3,classroom
@@ -1639,11 +1708,11 @@ M.Sc. Computational Finance,odd_sem3_CF,Algorithmic Trading Lab,odd,Thursday,1,2
 M.Sc. Computational Finance,odd_sem3_CF,Derivatives Pricing,odd,Friday,3,4,classroom`;
 
     const samples = [
-      { filename: 'cyber_security.csv', content: cyberCsv },
-      { filename: 'software_systems.csv', content: softwareCsv },
-      { filename: 'data_science.csv', content: dataScienceCsv },
-      { filename: 'theoretical_cs.csv', content: theoreticalCsv },
-      { filename: 'comp_finance.csv', content: compFinanceCsv },
+      { filename: 'demo_cyber_security.csv', content: cyberCsv },
+      { filename: 'demo_software_systems.csv', content: softwareCsv },
+      { filename: 'demo_data_science.csv', content: dataScienceCsv },
+      { filename: 'demo_theoretical_cs.csv', content: theoreticalCsv },
+      { filename: 'demo_comp_finance.csv', content: compFinanceCsv },
     ];
 
     this.uploadState.files = samples.map(s => {
@@ -1661,7 +1730,7 @@ M.Sc. Computational Finance,odd_sem3_CF,Derivatives Pricing,odd,Friday,3,4,class
     this.renderUploadedFilesList();
     this.renderUploadPreviewAndMappings();
     this.updateUploadStepper(2);
-    this.showToast('Loaded 5 Semester III M.Sc. Program Timetables (25 sessions across shared campus).', 'success');
+    this.showToast('Loaded Quick Demo Sample (25 mock sessions for demonstration).', 'info');
   }
 
   removeUploadedFile(idx) {
@@ -1688,10 +1757,19 @@ M.Sc. Computational Finance,odd_sem3_CF,Derivatives Pricing,odd,Friday,3,4,class
       return;
     }
 
+    const totalRows = this.uploadState.files.reduce((acc, f) => acc + f.rowCount, 0);
     container.style.display = 'block';
-    if (badge) badge.textContent = this.uploadState.files.length;
+    if (badge) badge.textContent = `${this.uploadState.files.length} files • ${totalRows} sessions`;
 
-    list.innerHTML = this.uploadState.files.map((f, idx) => {
+    const demoBanner = this.uploadState.isDemoData
+      ? `<div style="background: #fef3c7; border: 1px solid #fde68a; padding: 0.5rem 0.75rem; border-radius: 4px; font-size: 0.75rem; color: #92400e; margin-bottom: 0.75rem;">
+          🧪 <strong>DEMO SAMPLE ACTIVE:</strong> 25 synthetic mock sessions loaded for quick verification. To evaluate the full 140-occurrence Semester III timetables, click "Load Real Semester III Timetables" or browse files.
+        </div>`
+      : `<div style="background: #eff6ff; border: 1px solid #bfdbfe; padding: 0.5rem 0.75rem; border-radius: 4px; font-size: 0.75rem; color: #1e40af; margin-bottom: 0.75rem;">
+          📋 <strong>VERIFIED DATASET ACTIVE:</strong> ${totalRows} real session occurrences across ${this.uploadState.files.length} branch timetables.
+        </div>`;
+
+    list.innerHTML = demoBanner + this.uploadState.files.map((f, idx) => {
       const kbSize = (f.size / 1024).toFixed(1);
       return `
         <div class="uploaded-file-card">
@@ -2089,29 +2167,38 @@ M.Sc. Computational Finance,odd_sem3_CF,Derivatives Pricing,odd,Friday,3,4,class
       const groupBy = this.uploadState.timetableGroupBy;
       const program = this.uploadState.filterProgram || null;
       const cohortId = this.uploadState.filterCohort || null;
+      const roomId = this.uploadState.filterRoom || null;
 
       const data = await Api.getUploadTimetable(runId, {
         day: day,
         groupBy: groupBy,
         program: program,
-        cohortId: cohortId
+        cohortId: cohortId,
+        roomId: roomId
       });
       this.uploadState.timetableResponse = data;
 
-      // Populate filter dropdowns if not yet populated
+      // Populate filter dropdowns
       const progSelect = document.getElementById('upload-filter-program');
       const cohortSelect = document.getElementById('upload-filter-cohort');
+      const roomSelect = document.getElementById('upload-filter-room');
 
       if (progSelect && data.programs) {
-        const curr = progSelect.value;
+        const curr = this.uploadState.filterProgram;
         progSelect.innerHTML = '<option value="">All Programs</option>' +
           data.programs.map(p => `<option value="${p}" ${p === curr ? 'selected' : ''}>${p}</option>`).join('');
       }
 
       if (cohortSelect && data.cohorts) {
-        const curr = cohortSelect.value;
+        const curr = this.uploadState.filterCohort;
         cohortSelect.innerHTML = '<option value="">All Cohorts</option>' +
           data.cohorts.map(c => `<option value="${c}" ${c === curr ? 'selected' : ''}>${c}</option>`).join('');
+      }
+
+      if (roomSelect && data.rooms) {
+        const curr = this.uploadState.filterRoom;
+        roomSelect.innerHTML = '<option value="">All Rooms</option>' +
+          data.rooms.map(r => `<option value="${r}" ${r === curr ? 'selected' : ''}>${r}</option>`).join('');
       }
 
       this.renderUploadTimetableGrid(data);
@@ -2140,42 +2227,64 @@ M.Sc. Computational Finance,odd_sem3_CF,Derivatives Pricing,odd,Friday,3,4,class
       return;
     }
 
-    const periods = [1, 2, 3, 4, 5, 6, 7, 8];
-
     tbody.innerHTML = data.row_keys.map(rowKey => {
       const rowSlots = data.grid[rowKey] || {};
-      const cellsHtml = periods.map(p => {
-        const sessions = rowSlots[p] || [];
-        if (sessions.length === 0) {
-          return `<td style="padding: 0.5rem; text-align: center; color: #cbd5e1; font-size: 0.75rem;">-</td>`;
+      const cells = [];
+      let skipUntilPeriod = 0;
+
+      for (let p = 1; p <= 8; p++) {
+        if (p < skipUntilPeriod) {
+          // Covered by previous multi-period colspan
+          continue;
         }
 
-        return `
-          <td style="padding: 0.35rem; vertical-align: top;">
-            ${sessions.map(s => {
-              const isAllocated = !!s.assigned_room_id;
-              const bgClass = isAllocated ? 'background: #eff6ff; border: 1px solid #bfdbfe;' : 'background: #fee2e2; border: 1px solid #fecaca;';
-              const roomDisplay = isAllocated ? `🏫 <strong>${s.assigned_room_id}</strong>` : '⚠️ <span style="color:red;">Unassigned</span>';
-              const sessionJson = encodeURIComponent(JSON.stringify(s));
+        const sessions = rowSlots[p] || [];
+        if (sessions.length === 0) {
+          cells.push(`<td style="padding: 0.5rem; text-align: center; color: #cbd5e1; font-size: 0.75rem;">-</td>`);
+          continue;
+        }
 
-              return `
-                <div class="session-cell-clickable" onclick="window.ciqApp.showUploadSessionDetail('${sessionJson}')" style="${bgClass} padding: 0.35rem 0.45rem; border-radius: 4px; margin-bottom: 0.25rem; font-size: 0.72rem; line-height: 1.25;">
-                  <div style="font-weight: 600; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${s.course}">${s.course}</div>
-                  <div style="color: var(--text-muted); font-size: 0.68rem;">${s.cohort_id} • ${s.session_type}</div>
-                  <div style="margin-top: 0.2rem; font-size: 0.72rem;">${roomDisplay}</div>
-                </div>
-              `;
-            }).join('')}
-          </td>
-        `;
-      }).join('');
+        // Check if multi-period session starts at this period
+        const firstSession = sessions[0];
+        const span = (firstSession.start_period === p && firstSession.end_period > p)
+          ? (firstSession.end_period - firstSession.start_period + 1)
+          : 1;
+
+        if (span > 1) {
+          skipUntilPeriod = firstSession.end_period + 1;
+        }
+
+        const cellContent = sessions.map(s => {
+          const isAllocated = !!s.assigned_room_id;
+          const bgClass = isAllocated ? 'background: #eff6ff; border: 1px solid #bfdbfe;' : 'background: #fee2e2; border: 1px solid #fecaca;';
+          const roomDisplay = isAllocated ? `🏫 <strong>${s.assigned_room_id}</strong>` : '⚠️ <span style="color:red;">Unassigned</span>';
+          const isMulti = s.end_period > s.start_period;
+          const spanBadge = isMulti
+            ? `<span class="badge" style="background: #2563eb; color: white; font-size: 0.62rem; padding: 1px 5px; border-radius: 3px;">P${s.start_period}–P${s.end_period} (${s.end_period - s.start_period + 1} Periods)</span>`
+            : '';
+          const sessionJson = encodeURIComponent(JSON.stringify(s));
+
+          return `
+            <div class="session-cell-clickable" onclick="window.ciqApp.showUploadSessionDetail('${sessionJson}')" style="${bgClass} padding: 0.35rem 0.45rem; border-radius: 4px; font-size: 0.72rem; line-height: 1.25; height: 100%;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.25rem;">
+                <strong style="color: var(--text-main); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${s.course}">${s.course}</strong>
+                ${spanBadge}
+              </div>
+              <div style="color: var(--text-muted); font-size: 0.68rem; margin-top: 0.15rem;">${s.cohort_id} • ${s.session_type}</div>
+              <div style="margin-top: 0.25rem; font-size: 0.72rem;">${roomDisplay}</div>
+            </div>
+          `;
+        }).join('');
+
+        cells.push(`<td colspan="${span}" style="padding: 0.35rem; vertical-align: top;">${cellContent}</td>`);
+      }
 
       return `
         <tr style="border-bottom: 1px solid var(--border-light);">
           <td style="padding: 0.5rem 0.75rem; font-weight: 600; font-size: 0.8rem; background: var(--bg-card-subtle); vertical-align: middle;">
             ${rowKey}
           </td>
-          ${cellsHtml}
+          ${cells.join('')}
         </tr>
       `;
     }).join('');
@@ -2188,6 +2297,8 @@ M.Sc. Computational Finance,odd_sem3_CF,Derivatives Pricing,odd,Friday,3,4,class
 
     const s = JSON.parse(decodeURIComponent(sessionJson));
     const isAllocated = !!s.assigned_room_id;
+    const span = (s.end_period && s.start_period) ? (s.end_period - s.start_period + 1) : 1;
+    const periodLabel = (s.start_period === s.end_period) ? `Period ${s.start_period}` : `Periods ${s.start_period}–${s.end_period} (${span} periods)`;
 
     body.innerHTML = `
       <div style="display: flex; flex-direction: column; gap: 0.85rem; font-size: 0.82rem;">
@@ -2212,7 +2323,7 @@ M.Sc. Computational Finance,odd_sem3_CF,Derivatives Pricing,odd,Friday,3,4,class
           </div>
           <div>
             <label style="color: var(--text-muted); font-size: 0.72rem; display: block;">Day & Period</label>
-            <strong>${s.day}, Period ${s.start_period}–${s.end_period}</strong>
+            <strong>${s.day || 'Monday'}, ${periodLabel}</strong>
           </div>
           <div>
             <label style="color: var(--text-muted); font-size: 0.72rem; display: block;">Required Room Type</label>
@@ -2231,8 +2342,8 @@ M.Sc. Computational Finance,odd_sem3_CF,Derivatives Pricing,odd,Friday,3,4,class
         </div>
 
         <div style="border-top: 1px solid var(--border-light); padding-top: 0.5rem; font-size: 0.75rem; color: var(--text-muted);">
-          <div>Source File: <strong>${s.source_file || 'uploaded_data.csv'}</strong> (Row ${s.source_row || 'N/A'})</div>
-          <div>Academic Cycle: <strong>${(s.academic_cycle || 'even').toUpperCase()}</strong> • Run ID: <code>${this.uploadState.allocationResponse?.run_id || 'N/A'}</code></div>
+          <div>Source File: <strong>${s.source_file || 'uploaded_data.csv'}</strong> ${s.source_row ? `(Row ${s.source_row})` : (s.source_page ? `(${s.source_page})` : '')}</div>
+          <div>Academic Cycle: <strong>${(s.academic_cycle || 'odd').toUpperCase()}</strong> • Run ID: <code>${this.uploadState.allocationResponse?.run_id || 'N/A'}</code></div>
         </div>
       </div>
     `;

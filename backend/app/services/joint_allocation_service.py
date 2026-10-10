@@ -287,6 +287,8 @@ class JointAllocationService:
             status_label = "Joint Allocated Timetable"
             alloc_source = "joint"
 
+        is_all_days = (day is not None and day.lower() == "all")
+
         filtered_sessions: List[Session] = []
         for s in domain_sessions:
             active_room = assignments.get(s.session_id, "Unassigned")
@@ -296,26 +298,39 @@ class JointAllocationService:
                 continue
             if room_id and active_room != room_id:
                 continue
-            if day and s.day.lower() != day.lower():
+            if not is_all_days and day and s.day.lower() != day.lower():
                 continue
             filtered_sessions.append(s)
 
         days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
         periods = list(range(1, 9))  # Constrained to 1-8 per Document 05 v0.2.6
 
-        if group_by == "room":
-            row_keys = sorted(list(set(
-                assignments.get(s.session_id, "Unassigned")
-                for s in filtered_sessions
-                if assignments.get(s.session_id)
-            )))
-        elif group_by == "program":
-            row_keys = sorted(list(set(s.program for s in filtered_sessions)))
-        else:  # cohort
-            row_keys = sorted(list(set(s.cohort_id for s in filtered_sessions)))
+        target_day = "All Days" if is_all_days else (day.capitalize() if day else "Monday")
 
-        target_day = day.capitalize() if day else "Monday"
-        day_sessions = [s for s in filtered_sessions if s.day.lower() == target_day.lower()]
+        if is_all_days:
+            day_sessions = filtered_sessions
+            if group_by == "room":
+                row_keys = sorted(list(set(
+                    f"{assignments.get(s.session_id, 'Unassigned')} ({s.day[:3]})"
+                    for s in filtered_sessions
+                    if assignments.get(s.session_id)
+                )))
+            elif group_by == "program":
+                row_keys = sorted(list(set(f"{s.program} ({s.day[:3]})" for s in filtered_sessions)))
+            else:  # cohort
+                row_keys = sorted(list(set(f"{s.cohort_id} ({s.day[:3]})" for s in filtered_sessions)))
+        else:
+            day_sessions = [s for s in filtered_sessions if s.day.lower() == target_day.lower()]
+            if group_by == "room":
+                row_keys = sorted(list(set(
+                    assignments.get(s.session_id, "Unassigned")
+                    for s in day_sessions
+                    if assignments.get(s.session_id)
+                )))
+            elif group_by == "program":
+                row_keys = sorted(list(set(s.program for s in day_sessions)))
+            else:  # cohort
+                row_keys = sorted(list(set(s.cohort_id for s in day_sessions)))
 
         grid: Dict[str, Dict[int, List[Dict[str, Any]]]] = {
             rk: {p: [] for p in periods} for rk in row_keys
@@ -323,12 +338,20 @@ class JointAllocationService:
 
         for s in day_sessions:
             assigned_room = assignments.get(s.session_id, "Unassigned")
-            if group_by == "room":
-                rk = assigned_room
-            elif group_by == "program":
-                rk = s.program
+            if is_all_days:
+                if group_by == "room":
+                    rk = f"{assigned_room} ({s.day[:3]})"
+                elif group_by == "program":
+                    rk = f"{s.program} ({s.day[:3]})"
+                else:
+                    rk = f"{s.cohort_id} ({s.day[:3]})"
             else:
-                rk = s.cohort_id
+                if group_by == "room":
+                    rk = assigned_room
+                elif group_by == "program":
+                    rk = s.program
+                else:
+                    rk = s.cohort_id
 
             if rk in grid:
                 for p in s.period_range:
@@ -341,10 +364,15 @@ class JointAllocationService:
                             "assigned_room_id": assigned_room,
                             "source_file": s.source_file,
                             "source_page": s.source_page,
+                            "source_row": int(s.source_page.replace("Row ", "").strip()) if "Row " in s.source_page else None,
                             "session_type": s.session_type,
                             "required_room_type": s.required_room_type,
                             "start_period": s.start_period,
                             "end_period": s.end_period,
+                            "duration_periods": s.end_period - s.start_period + 1,
+                            "is_multi_period": (s.end_period > s.start_period),
+                            "day": s.day,
+                            "academic_cycle": s.academic_cycle,
                             "student_count": s.student_count,
                             "evaluation_mode": eval_mode,
                         })
@@ -352,6 +380,11 @@ class JointAllocationService:
         programs = sorted(list(set(s.program for s in domain_sessions)))
         cohorts = sorted(list(set(s.cohort_id for s in domain_sessions)))
         files = sorted(list(set(s.source_file for s in domain_sessions)))
+        rooms = sorted(list(set(
+            assignments.get(s.session_id)
+            for s in domain_sessions
+            if assignments.get(s.session_id)
+        )))
 
         return UploadTimetableResponse(
             run_id=run_id,
@@ -371,4 +404,6 @@ class JointAllocationService:
             programs=programs,
             cohorts=cohorts,
             files=files,
+            rooms=rooms,
         )
+

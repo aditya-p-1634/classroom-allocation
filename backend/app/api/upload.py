@@ -4,6 +4,7 @@ Governed by Document 05 revision v0.2.6 and PAR-CIQ-P7-ADDENDUM-01.
 Provides preflight inspection, joint CP-SAT optimization, and timetable queries.
 """
 
+from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
@@ -133,3 +134,23 @@ def export_upload_results(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported export format '{format}'. Supported formats are 'csv' and 'zip'.",
         )
+
+
+@router.get("/fixtures/semester_iii")
+def get_semester_iii_fixtures():
+    """Returns the five canonical raw Semester III timetable CSV fixtures."""
+    fixtures_dir = Path(__file__).resolve().parent.parent.parent.parent / "test_fixtures" / "semester_iii_raw_timetables"
+    files = [
+        "computational_finance_semester_iii.csv",
+        "cyber_security_semester_iii.csv",
+        "data_science_semester_iii.csv",
+        "software_systems_semester_iii.csv",
+        "theoretical_computer_science_semester_iii.csv",
+    ]
+    result = []
+    for fname in files:
+        fpath = fixtures_dir / fname
+        if fpath.exists():
+            content = fpath.read_text(encoding="utf-8")
+            result.append({"filename": fname, "content": content})
+    return {"academic_cycle": "odd", "total_files": len(result), "files": result}

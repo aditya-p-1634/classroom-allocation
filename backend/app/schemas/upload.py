@@ -153,3 +153,4 @@ class UploadTimetableResponse(BaseModel):
     programs: List[str]
     cohorts: List[str]
     files: List[str]
+    rooms: List[str] = Field(default_factory=list, description="All assigned room IDs in active allocation")

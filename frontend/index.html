@@ -305,8 +305,11 @@
               <button id="btn-browse-files" class="btn-primary" style="font-size: 0.85rem;">
                 📂 Browse CSV Files
               </button>
-              <button id="btn-load-sample-msc" class="btn-secondary" style="font-size: 0.85rem;" title="Loads the 5 canonical M.Sc. Semester III branch timetables for instant demonstration">
-                ⚡ Load 5 Sample M.Sc. Timetables (Semester III)
+              <button id="btn-load-real-semester3" class="btn-secondary" style="font-size: 0.85rem; font-weight: 600; border-color: var(--color-primary);" title="Loads all 5 real Semester III branch timetables (140 session occurrences across 5 programs)">
+                ⚡ Load Real Semester III Timetables (140 Sessions)
+              </button>
+              <button id="btn-load-sample-msc" class="btn-secondary" style="font-size: 0.85rem;" title="Loads 25 synthetic mock sessions strictly for quick demo testing">
+                🧪 Quick Demo Sample (25 Mock Sessions)
               </button>
             </div>
             <input type="file" id="upload-file-input" multiple accept=".csv,text/csv" style="display: none;">
@@ -576,6 +579,7 @@
               <button class="day-tab-btn" data-day="Wednesday">Wed</button>
               <button class="day-tab-btn" data-day="Thursday">Thu</button>
               <button class="day-tab-btn" data-day="Friday">Fri</button>
+              <button class="day-tab-btn" data-day="all" style="font-weight: 600;">All Days</button>
             </div>
 
             <!-- Group By Selector -->
@@ -603,6 +607,14 @@
                 <option value="">All Cohorts</option>
               </select>
             </div>
+
+            <!-- Filter: Room -->
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <label for="upload-filter-room" style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted);">Room:</label>
+              <select id="upload-filter-room" class="form-select" style="font-size: 0.8rem; padding: 0.25rem 0.5rem;">
+                <option value="">All Rooms</option>
+              </select>
+            </div>
           </div>
 
           <!-- Timetable Grid Container -->
@@ -611,14 +623,14 @@
               <thead>
                 <tr>
                   <th style="min-width: 140px; text-align: left;" id="upload-grid-row-header">Cohort</th>
-                  <th>P1<br><small>8:30-9:20</small></th>
-                  <th>P2<br><small>9:20-10:10</small></th>
-                  <th>P3<br><small>10:30-11:20</small></th>
-                  <th>P4<br><small>11:20-12:10</small></th>
-                  <th>P5<br><small>1:10-2:00</small></th>
-                  <th>P6<br><small>2:00-2:50</small></th>
-                  <th>P7<br><small>3:00-3:50</small></th>
-                  <th>P8<br><small>3:50-4:40</small></th>
+                  <th>P1<br><small>08:30–09:20</small></th>
+                  <th>P2<br><small>09:20–10:10</small></th>
+                  <th>P3<br><small>10:30–11:20</small></th>
+                  <th>P4<br><small>11:20–12:10</small></th>
+                  <th>P5<br><small>13:40–14:30</small></th>
+                  <th>P6<br><small>14:30–15:20</small></th>
+                  <th>P7<br><small>15:30–16:20</small></th>
+                  <th>P8<br><small>16:20–17:10</small></th>
                 </tr>
               </thead>
               <tbody id="upload-timetable-tbody"></tbody>
