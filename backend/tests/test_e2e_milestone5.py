@@ -706,3 +706,67 @@ def test_e2e_all_days_weekly_timetable_view(client, real_semester_iii_payloads):
     # Deduplicate by session_id in Monday
     assert len({s["session_id"] for s in mon_sessions}) == 6
 
+
+def test_e2e_software_systems_all_days_weekly_view(client, real_semester_iii_payloads):
+    """Regression test: verifies Software Systems with All Days displays all 28 sessions across Mon-Fri."""
+    payload_dicts = [p.model_dump() for p in real_semester_iii_payloads]
+    pref = client.post("/api/upload/preflight", json={"files": payload_dicts}).json()
+    run_id = pref["run_id"]
+
+    alloc_resp = client.post(
+        "/api/upload/allocate",
+        json={"run_id": run_id, "evaluation_mode": "synthetic", "time_limit_seconds": 5.0},
+    )
+    assert alloc_resp.status_code == 200
+
+    # Test all variations of the day parameter for All Days
+    day_variants = ["all", "All", "All Days", "all days", "all_days"]
+    for day_var in day_variants:
+        resp = client.get(
+            f"/api/upload/timetable/{run_id}?group_by=cohort&day={day_var}&program=Software%20Systems"
+        )
+        assert resp.status_code == 200, f"Failed for day variant '{day_var}': {resp.text}"
+        data = resp.json()
+
+        assert data["target_day"] == "All Days", f"Target day was {data['target_day']} for variant {day_var}"
+        assert data["group_by"] == "cohort"
+        assert len(data["row_keys"]) == 5, f"Expected 5 weekdays for Software Systems, got {len(data['row_keys'])}"
+        expected_keys = [
+            "odd_sem3_SS (Mon)",
+            "odd_sem3_SS (Tue)",
+            "odd_sem3_SS (Wed)",
+            "odd_sem3_SS (Thu)",
+            "odd_sem3_SS (Fri)",
+        ]
+        assert data["row_keys"] == expected_keys
+
+        # Verify all 28 occurrences are present in grid
+        ss_sessions = {}
+        for rk, slots in data["grid"].items():
+            for p, sl in slots.items():
+                for s in sl:
+                    ss_sessions[s["session_id"]] = s
+
+        assert len(ss_sessions) == 28, f"Expected 28 SS sessions for variant '{day_var}', got {len(ss_sessions)}"
+        assert all(s["program"] == "Software Systems" for s in ss_sessions.values())
+        assert all(s["cohort_id"] == "odd_sem3_SS" for s in ss_sessions.values())
+
+    # Verify multi-period session characteristics for Software Systems
+    algo_lab = next(s for s in ss_sessions.values() if s["course"] == "Algorithms Lab")
+    assert algo_lab["is_multi_period"] is True
+    assert algo_lab["duration_periods"] == 2
+    assert algo_lab["start_period"] == 1
+    assert algo_lab["end_period"] == 2
+
+    # Verify single day view for Software Systems Monday
+    mon_resp = client.get(
+        f"/api/upload/timetable/{run_id}?group_by=cohort&day=Monday&program=Software%20Systems"
+    )
+    assert mon_resp.status_code == 200
+    mon_data = mon_resp.json()
+    assert mon_data["target_day"] == "Monday"
+    assert mon_data["row_keys"] == ["odd_sem3_SS"]
+    mon_ss = [s for sl in mon_data["grid"]["odd_sem3_SS"].values() for s in sl]
+    assert len({s["session_id"] for s in mon_ss}) == 6
+
+

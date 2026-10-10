@@ -324,8 +324,9 @@ def get_timetable_grid(
 
     # Structure grid: row_key -> period -> list of sessions
     # (for the selected day or across all sessions)
-    target_day = day.capitalize() if day else "Monday"
-    day_sessions = [s for s in filtered_sessions if s.day.lower() == target_day.lower()]
+    is_all_days = (day is not None and day.lower().strip() in ("all", "all days", "all_days", "alldays"))
+    target_day = "All Days" if is_all_days else (day.capitalize() if day else "Monday")
+    day_sessions = filtered_sessions if is_all_days else [s for s in filtered_sessions if s.day.lower() == target_day.lower()]
 
     grid: Dict[str, Dict[int, List[Dict[str, Any]]]] = {
         rk: {p: [] for p in periods} for rk in row_keys

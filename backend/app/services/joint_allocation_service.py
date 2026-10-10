@@ -287,7 +287,7 @@ class JointAllocationService:
             status_label = "Joint Allocated Timetable"
             alloc_source = "joint"
 
-        is_all_days = (day is not None and day.lower() == "all")
+        is_all_days = (day is not None and day.lower().strip() in ("all", "all days", "all_days", "alldays"))
 
         filtered_sessions: List[Session] = []
         for s in domain_sessions:

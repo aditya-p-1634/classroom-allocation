@@ -2212,7 +2212,7 @@ M.Sc. Computational Finance,odd_sem3_CF,Derivatives Pricing,odd,Friday,3,4,class
     const tbody = document.getElementById('upload-timetable-tbody');
     if (!tbody) return;
 
-    const isAllDays = data.target_day === 'All Days';
+    const isAllDays = !!(data.target_day && data.target_day.toLowerCase().includes('all'));
 
     if (headerEl) {
       if (isAllDays) {
