@@ -2,7 +2,7 @@
 
 ClassroomIQ is an automated academic scheduling and room allocation system designed to optimize room utilization, eliminate scheduling conflicts, and minimize campus transit time for students and faculty across multi-department higher-education institutions.
 
-The system combines a **Constraint Satisfaction Programming (CP-SAT)** optimization engine with a **REST API bridge** and an interactive, dependency-free **web application**. It supports both institutional batch scheduling across pre-loaded campus datasets and a dedicated **upload-first joint allocation workflow** for departmental raw timetable CSVs.
+The system combines a **Constraint Satisfaction Programming (CP-SAT)** optimization engine with a **FastAPI REST API bridge** and an interactive, dependency-free **web application**. It supports both institutional batch scheduling across pre-loaded campus datasets and a dedicated **upload-first joint allocation workflow** for departmental raw timetable CSVs.
 
 ---
 
@@ -19,7 +19,7 @@ Higher-education campus scheduling frequently suffers from:
 ClassroomIQ resolves these bottlenecks by treating classroom allocation as a mathematically bounded constraint satisfaction problem:
 1. **Unified Multi-Program Ingestion:** Ingests unallocated raw timetables across multiple academic branches simultaneously.
 2. **CP-SAT Mathematical Optimization:** Maximizes placement efficiency while minimizing transit walking distance across a calibrated campus distance matrix.
-3. **Independent Formal Auditing:** Runs an uncompromised verification engine that validates every assignment against room-type capability, time exclusivity, and cohort scheduling boundaries.
+3. **Independent Formal Auditing:** Runs an uncompromised verification engine (`IndependentValidator`) that validates every assignment against room-type capability, time exclusivity, and cohort scheduling boundaries.
 4. **Truthful Reporting & Diagnostics:** Avoids silent session omissions by providing detailed feasibility diagnostics, explaining exact causes of resource contention when capacity bounds are exceeded.
 5. **Interactive Exploration & Export:** Renders complete weekly schedules in responsive multi-grouping timetable views and packages complete allocation results into downloadable CSV and ZIP archives.
 
@@ -30,21 +30,21 @@ ClassroomIQ resolves these bottlenecks by treating classroom allocation as a mat
 - **Upload-First Multi-Timetable Pipeline:** Upload multiple departmental timetable CSV files simultaneously, parse headers automatically, and validate formatting before allocation.
 - **Ambiguous Header Mapping Guard:** Flags ambiguous column names (e.g., `department` vs. `program`) and requires explicit confirmation rather than making silent assumptions.
 - **Joint Multi-Program CP-SAT Allocation:** Simultaneously allocates shared physical inventory (86 rooms across 10 buildings) across competing academic branches with zero double-bookings.
-- **Campus Transit Minimization:** Leverages a campus-wide Manhattan/Euclidean walking time matrix to cluster consecutive classes for the same student cohort in proximal physical buildings.
-- **Guaranteed Baseline-Protection Fallback:** Benchmarks the CP-SAT candidate against a fast greedy heuristic. If the optimizerregresses or times out, the baseline allocation is safely retained.
+- **Campus Transit Minimization:** Leverages a campus-wide Manhattan/Euclidean walking time matrix to cluster consecutive classes for the same student cohort in proximal physical rooms or buildings.
+- **Baseline-Protection Fallback Mechanism:** Benchmarks the CP-SAT candidate against a fast greedy heuristic. If the optimizer regresses on transit score or times out, the baseline allocation is safely retained (qualified for instances where feasible baseline assignments exist).
 - **Unified Weekly Timetable Grid:** Renders complete Monday–Friday weekly timetables in chronological order, with grouping toggles for **Cohort**, **Program**, and **Room** views.
 - **Multi-Period Lab Block Preservation:** Preserves multi-hour laboratory sessions as single visual blocks spanning consecutive period columns (P1–P8) with duration badges, rather than duplicating cells.
 - **Dual Evaluation Modes:**
   - **Synthetic Demo Profile:** Applies realistic synthetic student demand and operational availability estimates for rapid prototyping and demonstration.
   - **Factual Mode:** Enforces strict provenance; audits unverified room capacities and availability assumptions without synthetic substitution.
-- **Disruption Sandbox:** Simulates emergency room outages and evaluates local search (Simulated Annealing) repairs against frozen baseline schedules.
+- **Disruption Sandbox:** Simulates emergency room outages and evaluates local search repairs against frozen baseline schedules.
 - **Complete Deliverables Export:** Generates standardized combined CSV schedules and full ZIP packages compliant with institutional reporting formats.
 
 ---
 
 ## 3. How the System Works
 
-ClassroomIQ operates through an end-to-end 7-step pipeline:
+ClassroomIQ operates through an end-to-end pipeline:
 
 ```mermaid
 flowchart TD
@@ -88,13 +88,13 @@ flowchart TD
 
 ## 4. System Architecture
 
-ClassroomIQ is constructed with clean architectural separation between optimization logic, web delivery, and the user interface:
+ClassroomIQ is constructed with clean architectural separation between optimization logic, application services, REST routing, and the browser interface:
 
 ```mermaid
 graph TB
     subgraph Client ["Frontend Client (Browser SPA)"]
         UI[Single Page App - index.html]
-        CSS[Vanilla CSS Design System - index.css]
+        CSS[Vanilla CSS Design System - css/styles.css]
         APP[App Controller & State - js/app.js]
         API[API Client Bridge - js/api.js]
     end
@@ -119,10 +119,11 @@ graph TB
     end
 
     subgraph Core ["Optimization & Correctness Core"]
-        CPSAT[CPSATRoomOptimizer - OR-Tools]
-        BASE[GreedyBaselineAllocator]
-        ANNEAL[SimulatedAnnealingRepairer]
-        VALID[IndependentValidator]
+        CPSAT[CPSATRoomOptimizer - optimizer.py]
+        BASE[BaselineGreedyAllocator - baseline_allocator.py]
+        SIM[DisruptionSimulationEngine - simulation_engine.py]
+        VALID[IndependentValidator - validator.py]
+        METRIC[MetricsCalculator - metrics.py]
     end
 
     subgraph Storage ["Storage & Memory Model"]
@@ -148,7 +149,7 @@ graph TB
     R_ALLOC --> CPSAT
     R_ALLOC --> BASE
     R_VALID --> VALID
-    R_SIM --> ANNEAL
+    R_SIM --> SIM
     R_INVENT --> SVC_LOADER
 
     SVC_JOINT --> CPSAT
@@ -165,51 +166,75 @@ graph TB
 
 ### Core Allocators
 
-1. **Greedy Baseline Allocator (`GreedyBaselineAllocator`):**
-   - Sequential heuristic sorting sessions by cohort size and duration.
-   - Places sessions in the first available valid room meeting capacity and room-type requirements.
-   - Provides a benchmark for optimization improvement and guarantees a fallback solution.
+1. **Greedy Baseline Allocator (`BaselineGreedyAllocator` in `backend/app/core/baseline_allocator.py`):**
+   - Sequential heuristic sorting sessions by cycle, duration, and day.
+   - Assigns sessions to the first available room satisfying room capability and schedule non-overlap.
+   - Provides an immediate feasibility baseline and safe fallback candidate.
 
-2. **Constraint Programming Solver (`CPSATRoomOptimizer`):**
+2. **Constraint Programming Solver (`CPSATRoomOptimizer` in `backend/app/core/optimizer.py`):**
    - Formulates allocation as an integer programming model using Google OR-Tools CP-SAT.
-   - **Decision Variables:** Binary variables $x_{s,r} \in \{0, 1\}$ denoting whether session occurrence $s$ is placed in room $r$.
-   - **Hard Constraint 1 (Room Capability):** $x_{s,r} = 0$ if room type of $r$ does not satisfy the required room type of $s$ (e.g., laboratory sessions must map to laboratory rooms).
-   - **Hard Constraint 2 (Room-Time Exclusivity):** For every physical room $r$, day $d$, and period $p$:
-     $$\sum_{s \in \text{Sessions}(d, p)} x_{s,r} \le 1$$
-     Ensures zero room double-bookings.
-   - **Hard Constraint 3 (Cohort-Time Exclusivity):** For every student cohort $c$, day $d$, and period $p$:
-     $$\sum_{s \in \text{Sessions}(c, d, p)} x_{s,r} \le 1$$
-     Guarantees students are never scheduled in two places simultaneously.
-   - **Objective Function:** Minimize total campus transit walking time between consecutive classes for each student cohort based on the distance travel matrix:
-     $$\min \sum_{(s_1, s_2) \in \text{Consecutive}} \text{WalkingTime}(\text{Room}(s_1), \text{Room}(s_2))$$
+   - **Decision Variables:** Binary variables $x_{s,r} \in \{0, 1\}$ denoting whether session occurrence $s \in S$ is assigned to room $r \in R$.
 
-3. **Disruption Repair (`SimulatedAnnealingRepairer`):**
-   - Handles operational room outages using simulated annealing.
-   - Minimizes ripple reassignments while finding valid alternate rooms for affected sessions.
+   - **Hard Constraint 1: Room Capability Compatibility**
+     For each session $s$ and room $r$, assignment is prohibited if room $r$ does not satisfy the required facility or room type:
+     $$x_{s,r} = 0 \quad \text{if } \text{required\_room\_type}(s) \notin \text{permitted\_uses}(r)$$
+     *(A narrow exception is configurable for 10 historical computing lab sessions in software laboratories when `allow_computing_lab_exception` is explicitly enabled).*
+
+   - **Hard Constraint 2: Room-Time Exclusivity**
+     No two sessions may occupy the same physical room during overlapping time periods. For every room $r \in R$, day $d$, and period $p \in \{1,\dots,8\}$:
+     $$\sum_{s \in S(d, p)} x_{s,r} \le 1$$
+     where $S(d, p)$ contains all sessions active on day $d$ covering period $p$ ($p \in [\text{start\_period}(s), \text{end\_period}(s)]$).
+
+   - **Hard Constraint 3: Cohort-Time Exclusivity**
+     A student cohort must not be scheduled into multiple concurrent rooms or sessions. For every cohort $c$, day $d$, and period $p \in \{1,\dots,8\}$:
+     $$\sum_{s \in S(c, d, p)} \sum_{r \in R} x_{s,r} \le 1$$
+     where $S(c, d, p)$ is the set of sessions belonging to cohort $c$ on day $d$ covering period $p$, and $R$ is the complete set of candidate rooms.
+
+   - **Hard Constraint 4: Exact Session Placement**
+     When slack is disabled (`allow_slack=False`, default mode for complete scheduling), each session must be assigned to exactly one candidate room:
+     $$\sum_{r \in R_s} x_{s,r} = 1 \quad \forall s \in S$$
+     When `allow_slack=True`, unassigned sessions are represented by slack variables $u_s \in \{0, 1\}$ penalized with a heavy objective penalty ($10^6$) to isolate partial-allocation bottlenecks.
+
+   - **Optimization Objective Function:**
+     The solver maximizes a composite linear score balancing transit reduction, room specialization suitability, and stability:
+     $$\max \left( \sum_{(s_1, s_2) \in \mathcal{T}} \text{Savings}(r(s_1), r(s_2)) - \sum_{s \in S_{\text{class}}, r \in R_{\text{lab}}} 30 \cdot x_{s,r} + \sum_{s \in S_{\text{repair}}} 20 \cdot x_{s, r_0(s)} \right)$$
+     where:
+     - $\mathcal{T}$ is the set of consecutive session transitions for the same cohort on the same day ($\text{start\_period}(s_2) = \text{end\_period}(s_1) + 1$).
+     - $\text{Savings}(r_1, r_2) = \max\left(0, \lfloor(8.0 - \text{travel\_time}(r_1, r_2)) \times 10\rfloor\right)$, yielding:
+       - **Same-room continuity ($0.0$ min transit):** $+80$ points.
+       - **Same-building proximity ($\le 3.0$ min transit):** $+50$ points.
+       - **Cross-campus transit ($8.0$ min transit):** $+0$ points.
+     - **Specialized room misuse penalty:** $-30$ points per session for placing ordinary classroom lectures in scarce laboratory rooms.
+     - **Reassignment stability bonus:** $+20$ points for retaining previous room $r_0(s)$ during operational disruption repair.
+
+3. **Disruption Simulation & Local Search (`backend/app/core/simulation_engine.py`):**
+   - Simulates emergency room outages and evaluates schedule repair heuristics against frozen baseline allocations.
 
 ### Safe Fallback & Truthful Infeasibility
-- **Baseline Protection:** If the CP-SAT solver exceeds its configured time limit or regresses against the greedy baseline on walking time, the system automatically falls back to the baseline allocation.
+- **Baseline Protection:** If the CP-SAT solver exceeds its configured time limit or regresses against the greedy baseline on walking-time score, the system automatically falls back to the baseline allocation.
 - **No Silent Omissions:** If the available physical inventory is insufficient to place all sessions, ClassroomIQ explicitly flags unassigned sessions, provides an infeasibility diagnosis, and lists exact session IDs that could not be accommodated.
 
 ---
 
-## 6. Technology Stack
+## 6. Technology Stack & Tested Environment
 
-### Backend
-- **Python 3.14+** (compatible with Python 3.10+)
-- **FastAPI (v0.141.1):** High-performance async REST API framework.
-- **Google OR-Tools (v9.15.6755):** CP-SAT constraint programming solver.
-- **Pydantic (v2.13.4):** Data validation and schema enforcement.
-- **Uvicorn (v0.53.0):** ASGI production web server.
+### Tested Runtime Environment
+- **Operating System:** Windows 11 / Windows Server x64
+- **Python Version:** **Python 3.14.2** *(verified runtime environment)*
+  *(Compatible with standard Python 3.10+ environments when matching dependencies are installed)*
+
+### Core Python Dependencies (from `requirements.txt`)
+- **FastAPI (`0.141.1`):** Async REST API framework with OpenAPI schema validation.
+- **Uvicorn (`0.53.0`):** ASGI web server implementation.
+- **Google OR-Tools (`9.15.6755`):** CP-SAT constraint programming solver.
+- **Pydantic (`2.13.4`):** Data validation and domain schema enforcement.
+- **pytest (`9.1.1`):** Automated test runner and assertion framework.
+- **HTTPX (`0.28.1`):** Next-generation HTTP client used for REST endpoint verification.
+- **python-docx (`1.2.0`):** Specification document verification and metadata parsing.
 
 ### Frontend
-- **HTML5 & Vanilla CSS3:** Modern responsive layout, glassmorphic card styling, CSS grid timetable views.
-- **Vanilla ES6+ JavaScript:** Modular design with native ES modules, async/await HTTP client, and zero external npm/build dependencies.
-
-### Testing & Infrastructure
-- **pytest (v9.1.1) & anyio:** Automated unit, integration, and end-to-end regression testing.
-- **FastAPI TestClient & HTTPX:** In-process HTTP integration testing.
-- **Standard Library:** `csv`, `zipfile`, `hashlib`, `math`, `dataclasses`.
+- **HTML5 & Vanilla CSS3 (`frontend/css/styles.css`):** Responsive design system with glassmorphic cards, CSS grid timetables, and color-coded status badges.
+- **Vanilla ES6+ JavaScript (`frontend/js/app.js`, `frontend/js/api.js`):** Native ES modules with async/await REST fetch calls, zero external npm packages, and zero build toolchain overhead.
 
 ---
 
@@ -219,60 +244,62 @@ graph TB
 CommitCon/
 ├── backend/
 │   ├── app/
-│   │   ├── api/                  # REST API route handlers
-│   │   │   ├── allocation.py     # Batch allocation endpoints
-│   │   │   ├── inventory.py      # Room, session, and timetable endpoints
-│   │   │   ├── simulation.py     # Disruption sandbox endpoints
-│   │   │   ├── status.py         # System health and dataset manifests
-│   │   │   ├── upload.py         # Upload preflight, allocate, timetable, export
-│   │   │   └── validation.py     # Independent validation endpoints
-│   │   ├── core/                 # Core mathematical algorithms (P4-P6 baseline)
-│   │   │   ├── baseline_allocator.py   # Greedy allocation heuristic
-│   │   │   ├── cpsat_optimizer.py      # Google OR-Tools CP-SAT optimizer
-│   │   │   ├── simulated_annealing.py  # Disruption repair metaheuristic
+│   │   ├── api/                    # REST API route handlers
+│   │   │   ├── allocation.py       # Batch allocation endpoints
+│   │   │   ├── inventory.py        # Room, session, and timetable endpoints
+│   │   │   ├── simulation.py       # Disruption sandbox endpoints
+│   │   │   ├── status.py           # System health and dataset manifests
+│   │   │   ├── upload.py           # Upload preflight, allocate, timetable, export
+│   │   │   └── validation.py       # Independent validation endpoints
+│   │   ├── core/                   # Mathematical optimization core
+│   │   │   ├── baseline_allocator.py   # Greedy heuristic room allocator
+│   │   │   ├── metrics.py              # Transit time, efficiency, and metrics engine
+│   │   │   ├── optimizer.py            # Google OR-Tools CP-SAT room optimizer
+│   │   │   ├── simulation_engine.py    # Disruption simulation and repair engine
 │   │   │   └── validator.py            # Independent compliance validator
-│   │   ├── schemas/              # Pydantic data transfer schemas
-│   │   │   ├── models.py         # Domain models (Room, Session, Cohort, Building)
-│   │   │   └── upload.py         # Upload payloads, responses, and grid schemas
-│   │   ├── services/             # Core business logic services
-│   │   │   ├── data_loader.py    # CSV seed dataset loader
-│   │   │   ├── export_service.py # Combined CSV and ZIP archive generator
-│   │   │   ├── joint_allocation_service.py # Joint multi-program allocator
-│   │   │   ├── synthetic_profile.py        # Demo demand and availability profile
-│   │   │   ├── travel_matrix.py  # Campus distance matrix calculator
-│   │   │   └── upload_service.py # Preflight parser, normalizer, and registry
-│   │   └── main.py               # FastAPI application entrypoint & static mount
-│   └── tests/                    # Automated pytest test suite (103 tests)
-│       ├── test_api.py           # REST API endpoint tests
-│       ├── test_baseline.py      # Greedy allocator unit tests
-│       ├── test_data_loader.py   # Dataset ingestion and hash verification
-│       ├── test_e2e_milestone5.py# End-to-end multi-branch upload regression tests
-│       ├── test_metrics.py       # Walking distance and efficiency metrics
-│       ├── test_optimizer.py     # CP-SAT solver constraint validation
-│       ├── test_simulation.py    # Disruption sandbox simulation tests
-│       ├── test_travel_matrix.py # Campus geography travel tests
+│   │   ├── schemas/                # Pydantic data transfer schemas
+│   │   │   ├── models.py           # Domain models (Room, Session, Cohort)
+│   │   │   ├── upload.py           # Upload payloads, responses, and grid schemas
+│   │   │   └── validation.py       # Validation findings and status models
+│   │   ├── services/               # Core application services
+│   │   │   ├── data_loader.py      # Seed dataset loader and hash verification
+│   │   │   ├── export_service.py   # Combined CSV and ZIP deliverable generator
+│   │   │   ├── joint_allocation_service.py # Multi-program joint room allocator
+│   │   │   ├── synthetic_profile.py        # Demo demand and availability profiles
+│   │   │   ├── travel_matrix.py    # Campus distance and transit matrix service
+│   │   │   └── upload_service.py   # Preflight parser, normalizer, and run registry
+│   │   └── main.py                 # FastAPI application entrypoint & static mount
+│   └── tests/                      # Automated test suite (103 passing tests)
+│       ├── test_api.py             # REST API endpoint tests
+│       ├── test_baseline.py        # Greedy allocator unit tests
+│       ├── test_data_loader.py     # Dataset ingestion and hash verification
+│       ├── test_e2e_milestone5.py  # End-to-end multi-branch upload regression tests
+│       ├── test_metrics.py         # Walking distance and efficiency metrics
+│       ├── test_optimizer.py       # CP-SAT solver constraint validation
+│       ├── test_simulation.py      # Disruption sandbox simulation tests
+│       ├── test_travel_matrix.py   # Campus geography travel tests
 │       ├── test_upload_pipeline.py # Preflight parser and mapping tests
-│       └── test_validator.py     # Independent validation audit tests
-├── data/                         # Canonical baseline seed datasets (7 files)
-│   ├── buildings.csv             # 10 campus buildings
-│   ├── curricula.csv             # 116 curriculum requirements
-│   ├── departments.csv           # 7 academic departments
-│   ├── faculty.csv               # 88 faculty members
-│   ├── programs.csv              # 5 academic degree programs
-│   ├── rooms.csv                 # 86 physical rooms and laboratories
-│   └── sessions.csv              # 1,250 scheduled institutional sessions
-├── docs/                         # Authoritative project specifications & governance
+│       └── test_validator.py       # Independent validation audit tests
+├── data/                           # Canonical baseline seed datasets (7 files)
+│   ├── availability.csv            # Room availability records across days and periods
+│   ├── complaints.csv              # Room / facility feedback and complaints
+│   ├── events.csv                  # Institutional event room bookings / constraints
+│   ├── facilities.csv              # Room facility and equipment capabilities
+│   ├── rooms.csv                   # Physical rooms, room types, capacities, permitted uses
+│   ├── sessions.csv                # Scheduled institutional course sessions
+│   └── travel_times.csv            # Campus travel / walking times between room pairs
+├── docs/                           # Authoritative project specifications & governance
 │   ├── ClassroomIQ_Document_05_Implementation_Roadmap_and_Build_Authorization_v0.2.0.docx
 │   ├── ClassroomIQ_UI_Benchmark_Approved_Reference.jpg
 │   └── ...
-├── frontend/                     # Web application SPA assets
+├── frontend/                       # Web application SPA assets
 │   ├── css/
-│   │   └── index.css             # Unified CSS tokens, components, and layout
+│   │   └── styles.css              # Unified CSS tokens, components, and layout
 │   ├── js/
-│   │   ├── api.js                # REST API fetch bridge
-│   │   └── app.js                # UI controller, state manager, timetable renderer
-│   └── index.html                # Single-page application entrypoint
-├── test_fixtures/                # Realistic multi-program raw timetable fixtures
+│   │   ├── api.js                  # REST API fetch bridge
+│   │   └── app.js                  # UI controller, state manager, timetable renderer
+│   └── index.html                  # Single-page application entrypoint
+├── test_fixtures/                  # Raw timetable fixtures
 │   └── semester_iii_raw_timetables/
 │       ├── computational_finance_semester_iii.csv    # 28 session records
 │       ├── cyber_security_semester_iii.csv           # 28 session records
@@ -281,7 +308,8 @@ CommitCon/
 │       ├── theoretical_computer_science_semester_iii.csv # 28 session records
 │       ├── combined_semester_iii_all_five_branches.csv # 140 review records
 │       └── README_Data_Mapping_and_Quality_Report.md  # Fixture mapping specification
-└── README.md                     # Root project documentation
+├── requirements.txt                # Pinned dependencies for reproducible setup
+└── README.md                       # Root project documentation
 ```
 
 ---
@@ -289,7 +317,7 @@ CommitCon/
 ## 8. Installation & Setup
 
 ### Prerequisites
-- **Python 3.10+** (Python 3.12 or 3.14 recommended)
+- **Python 3.14.2** (or Python 3.10+ with pip)
 - **Git**
 - A modern web browser (Google Chrome, Microsoft Edge, Mozilla Firefox)
 
@@ -301,9 +329,9 @@ git checkout feature/phase-p7-frontend-integration
 ```
 
 ### Step 2: Install Python Dependencies
-Install the required packages in your Python environment:
+Install the exact tested dependency versions using `requirements.txt`:
 ```bash
-pip install fastapi uvicorn ortools pydantic pytest httpx python-docx
+pip install -r requirements.txt
 ```
 
 ### Step 3: Start the Backend Server
@@ -312,8 +340,9 @@ Launch the FastAPI development server from the repository root:
 python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 The server will start at `http://127.0.0.1:8000/`.
-- **API Documentation (Swagger UI):** `http://127.0.0.1:8000/docs`
 - **Application Frontend:** `http://127.0.0.1:8000/`
+- **API Documentation (Swagger UI):** `http://127.0.0.1:8000/docs`
+- **Health Check Endpoint:** `http://127.0.0.1:8000/api/health`
 
 ---
 
@@ -328,21 +357,21 @@ python -m pytest
 
 To run specific test modules:
 ```bash
-# Run the end-to-end multi-branch upload and timetable regression suite
+# Run the end-to-end multi-branch upload and timetable regression suite (18 tests)
 python -m pytest backend/tests/test_e2e_milestone5.py -v
 
-# Run the CP-SAT optimizer constraint tests
+# Run the CP-SAT optimizer constraint tests (10 tests)
 python -m pytest backend/tests/test_optimizer.py -v
 
-# Run the preflight parser and normalization tests
+# Run the preflight parser and normalization tests (20 tests)
 python -m pytest backend/tests/test_upload_pipeline.py -v
 ```
 
 ---
 
-## 10. Using the Semester III Timetable Fixtures
+## 10. Semester III Timetable Fixtures
 
-The repository includes five authentic raw timetable CSV fixtures located in:
+The repository includes five raw timetable CSV fixtures located in:
 `test_fixtures/semester_iii_raw_timetables/`
 
 | Fixture File | Program | Cohort ID | Total Sessions | Lab Blocks |
@@ -359,6 +388,7 @@ The repository includes five authentic raw timetable CSV fixtures located in:
 - **Period Bounds:** Bounded to **Periods 1–8** (P1 08:30–09:20 through P8 16:20–17:10).
 - **Multi-Period Labs:** Two-period lab blocks are defined with `start_period` and `end_period` (e.g., `start_period: 1, end_period: 2`) as single occurrences.
 - **Unassigned Rooms:** The files contain no pre-assigned room IDs, serving as clean inputs for joint optimization.
+- **Context & Provenance:** Derived from departmental curriculum structures for five engineering/computing branches formatted for joint allocation benchmarking.
 
 ---
 
@@ -368,7 +398,7 @@ Follow this walkthrough to test the multi-timetable upload and allocation workfl
 
 1. **Launch Application:** Navigate to `http://127.0.0.1:8000/` in your browser.
 2. **Access Upload Module:** Click **Upload Timetable** in the primary navigation bar.
-3. **Load Canonical Timetables:**
+3. **Load Timetables:**
    - Click the button **⚡ Load Real Semester III Timetables (140 Sessions)** (or drag-and-drop the five fixture files from `test_fixtures/semester_iii_raw_timetables/`).
    - The UI displays **5 files • 140 sessions** loaded.
 4. **Inspect Preflight Validation:**
@@ -379,7 +409,7 @@ Follow this walkthrough to test the multi-timetable upload and allocation workfl
    - Set solver time limit (default: 5.0 seconds).
    - Click **Run Joint Multi-Program Allocation**.
 6. **Evaluate Allocation Results:**
-   - Review solver metrics: **140 / 140 Placed (100%)**, zero hard collisions, solver name (`CPSATRoomOptimizer`), and walking time reduction percentage.
+   - Review solver metrics: **140 / 140 Placed (100%)** *(observed on the 140-session Semester III test fixture under Synthetic Demo Profile)*, zero hard collisions, solver name (`CPSATRoomOptimizer`), and transit savings.
 7. **Explore the Weekly Timetable:**
    - Scroll to **Step 6: Allocated Timetable Explorer**.
    - Click **All Days** in the weekday selector to view the complete Monday–Friday schedule.
@@ -400,9 +430,9 @@ To maintain scientific integrity and prevent demo estimations from being confuse
 ### Synthetic Demo Profile (Default for Demonstrations)
 - **Context:** Raw timetable spreadsheets collected from academic departments frequently omit physical room inventory availability or real-time student enrollment figures.
 - **Assumptions Applied:**
-  - In fresh upload runs, physical rooms from the institutional inventory are assumed available unless reserved.
+  - In fresh upload runs, physical rooms from the institutional inventory (86 rooms) are assumed available unless reserved.
   - Student cohort demand is derived from synthetic cohort profile estimates.
-- **Purpose:** Enables end-to-end solver execution, spatial optimization, and interactive UI exploration during hackathon presentations and evaluations.
+- **Purpose:** Enables end-to-end solver execution, spatial optimization, and interactive UI exploration during presentations and evaluations.
 
 ### Factual Mode
 - **Context:** Used when auditing institutional data strictly against verified evidence.
@@ -415,10 +445,12 @@ To maintain scientific integrity and prevent demo estimations from being confuse
 
 ## 13. Limitations & Constraints
 
+- **Scope of Placement Claims:** Claims of "100% placed" and "zero collisions" are observed empirical results for the specific five Semester III test fixtures (140 session occurrences across 5 programs) under Synthetic Demo Profile assumptions with 86 campus rooms available. They do not constitute a universal theoretical guarantee for arbitrary inputs or severely constrained physical inventories.
+- **Fallback Behavior:** The baseline fallback mechanism protects against optimization regressions or timeouts when a feasible baseline exists, but cannot resolve inherently infeasible problem instances where room demand exceeds physical capacity.
 - **Period Bounds:** Timetable uploads are bounded strictly to **Periods 1–8** (08:30–17:10). Period 9 is reserved for institutional special events per governance specification.
 - **In-Memory Run Persistence:** Upload runs and active joint allocations are maintained in an in-memory session registry (`UploadService._registry`). Active runs do not persist across backend server restarts (export deliverables provide persistent disk storage).
 - **Supported Formats:** The upload pipeline currently accepts CSV files. Excel (`.xlsx`) or PDF timetable files must be converted to CSV prior to ingestion.
-- **Solver Time Bounds:** Solvers operate with configurable hard timeouts (1.0–10.0 seconds) to ensure responsive web interaction. Complex contention scenarios trigger safe baseline-protection fallback.
+- **Solver Time Bounds:** Solvers operate with configurable hard timeouts (1.0–10.0 seconds) to ensure responsive web interaction.
 
 ---
 
@@ -435,6 +467,8 @@ To maintain scientific integrity and prevent demo estimations from being confuse
 
 ---
 
-## 15. License & Academic Attribution
+## 15. License & Intellectual Property Notice
+
+The license for this project has not yet been specified and is pending formal institutional determination. All rights are reserved by the authors and project contributors until an explicit license is adopted. No open-source license is granted or implied without an authorized licensing decision.
 
 Developed as part of the ClassroomIQ Academic Scheduling Initiative. Built with FastAPI and Google OR-Tools. Canonical seed datasets and test fixtures are preserved for reproducibility and benchmarking.
