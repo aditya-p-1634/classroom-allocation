@@ -605,3 +605,104 @@ Isolated Program,odd_iso_1,Unique Isolated Course B,odd,Monday,2,2,classroom
     assert len(run2_export.strip().splitlines()) == 3
     assert "Unique Isolated Course A" in run2_export
     assert "Computational Finance" not in run2_export
+
+
+def test_e2e_all_days_weekly_timetable_view(client, real_semester_iii_payloads):
+    """Verifies that All Days displays complete Monday-Friday weekly schedule collectively in coherent order."""
+    payload_dicts = [p.model_dump() for p in real_semester_iii_payloads]
+    pref = client.post("/api/upload/preflight", json={"files": payload_dicts}).json()
+    run_id = pref["run_id"]
+
+    alloc_resp = client.post(
+        "/api/upload/allocate",
+        json={"run_id": run_id, "evaluation_mode": "synthetic", "time_limit_seconds": 5.0},
+    )
+    assert alloc_resp.status_code == 200
+
+    # 1. Computational Finance All Days View (should contain exactly 28 sessions in Mon-Fri order)
+    cf_resp = client.get(f"/api/upload/timetable/{run_id}?group_by=program&day=all&program=Computational%20Finance")
+    assert cf_resp.status_code == 200
+    cf_data = cf_resp.json()
+
+    assert cf_data["target_day"] == "All Days"
+    assert cf_data["group_by"] == "program"
+    assert len(cf_data["row_keys"]) == 5
+    # Strict chronological order check: Mon -> Tue -> Wed -> Thu -> Fri
+    expected_cf_keys = [
+        "Computational Finance (Mon)",
+        "Computational Finance (Tue)",
+        "Computational Finance (Wed)",
+        "Computational Finance (Thu)",
+        "Computational Finance (Fri)",
+    ]
+    assert cf_data["row_keys"] == expected_cf_keys
+
+    # Extract all distinct session occurrences for CF
+    cf_sessions = {}
+    for rk, slots in cf_data["grid"].items():
+        for p, sl in slots.items():
+            for s in sl:
+                cf_sessions[s["session_id"]] = s
+
+    assert len(cf_sessions) == 28, f"Expected 28 CF occurrences across Mon-Fri, got {len(cf_sessions)}"
+    # Verify course names match authentic CF timetable
+    cf_courses = {s["course"] for s in cf_sessions.values()}
+    assert "Corporate Finance & Capital Markets" in cf_courses
+    assert "R Lab" in cf_courses
+    assert "Statistics" in cf_courses
+
+    # Verify multi-period preservation
+    r_lab = next(s for s in cf_sessions.values() if s["course"] == "R Lab")
+    assert r_lab["is_multi_period"] is True
+    assert r_lab["duration_periods"] == 2
+    assert r_lab["start_period"] == 1
+    assert r_lab["end_period"] == 2
+
+    # 2. All Programs Weekly Schedule (140 occurrences across 5 programs)
+    all_prog_resp = client.get(f"/api/upload/timetable/{run_id}?group_by=program&day=all")
+    assert all_prog_resp.status_code == 200
+    all_prog_data = all_prog_resp.json()
+
+    assert len(all_prog_data["row_keys"]) == 25  # 5 programs * 5 weekdays
+    all_sessions = {}
+    for rk, slots in all_prog_data["grid"].items():
+        for p, sl in slots.items():
+            for s in sl:
+                all_sessions[s["session_id"]] = s
+
+    assert len(all_sessions) == 140, f"Expected 140 total occurrences, got {len(all_sessions)}"
+    assert len(all_prog_data["programs"]) == 5
+
+    # 3. All Cohorts Weekly Schedule (140 occurrences across 5 cohorts)
+    cohort_resp = client.get(f"/api/upload/timetable/{run_id}?group_by=cohort&day=all")
+    assert cohort_resp.status_code == 200
+    cohort_data = cohort_resp.json()
+    assert len(cohort_data["row_keys"]) == 25  # 5 cohorts * 5 weekdays
+    cohort_sessions = {}
+    for rk, slots in cohort_data["grid"].items():
+        for p, sl in slots.items():
+            for s in sl:
+                cohort_sessions[s["session_id"]] = s
+    assert len(cohort_sessions) == 140
+
+    # 4. Room Grouping Weekly Schedule (140 occurrences placed in physical rooms)
+    room_resp = client.get(f"/api/upload/timetable/{run_id}?group_by=room&day=all")
+    assert room_resp.status_code == 200
+    room_data = room_resp.json()
+    room_sessions = {}
+    for rk, slots in room_data["grid"].items():
+        for p, sl in slots.items():
+            for s in sl:
+                room_sessions[s["session_id"]] = s
+    assert len(room_sessions) == 140
+
+    # 5. Verify individual day views remain functional and isolated
+    mon_resp = client.get(f"/api/upload/timetable/{run_id}?group_by=program&day=Monday&program=Computational%20Finance")
+    assert mon_resp.status_code == 200
+    mon_data = mon_resp.json()
+    assert mon_data["target_day"] == "Monday"
+    assert mon_data["row_keys"] == ["Computational Finance"]
+    mon_sessions = [s for sl in mon_data["grid"]["Computational Finance"].values() for s in sl]
+    # Deduplicate by session_id in Monday
+    assert len({s["session_id"] for s in mon_sessions}) == 6
+

@@ -292,8 +292,11 @@ class JointAllocationService:
         filtered_sessions: List[Session] = []
         for s in domain_sessions:
             active_room = assignments.get(s.session_id, "Unassigned")
-            if program and s.program != program:
-                continue
+            if program:
+                prog_clean = program.replace("M.Sc. ", "").replace("MSc ", "").strip().lower()
+                s_prog_clean = s.program.replace("M.Sc. ", "").replace("MSc ", "").strip().lower()
+                if prog_clean != s_prog_clean and prog_clean not in s_prog_clean and s_prog_clean not in prog_clean:
+                    continue
             if cohort_id and s.cohort_id != cohort_id:
                 continue
             if room_id and active_room != room_id:
@@ -310,15 +313,32 @@ class JointAllocationService:
         if is_all_days:
             day_sessions = filtered_sessions
             if group_by == "room":
-                row_keys = sorted(list(set(
-                    f"{assignments.get(s.session_id, 'Unassigned')} ({s.day[:3]})"
+                entities = sorted(list(set(
+                    assignments.get(s.session_id, "Unassigned")
                     for s in filtered_sessions
                     if assignments.get(s.session_id)
                 )))
             elif group_by == "program":
-                row_keys = sorted(list(set(f"{s.program} ({s.day[:3]})" for s in filtered_sessions)))
+                entities = sorted(list(set(s.program for s in filtered_sessions)))
             else:  # cohort
-                row_keys = sorted(list(set(f"{s.cohort_id} ({s.day[:3]})" for s in filtered_sessions)))
+                entities = sorted(list(set(s.cohort_id for s in filtered_sessions)))
+
+            # Chronological weekdays order: Mon -> Tue -> Wed -> Thu -> Fri
+            row_keys = []
+            for entity in entities:
+                for day_name in days:
+                    day_abbr = day_name[:3]
+                    rk = f"{entity} ({day_abbr})"
+                    has_session = any(
+                        (
+                            assignments.get(s.session_id, "Unassigned") == entity if group_by == "room"
+                            else (s.program == entity if group_by == "program" else s.cohort_id == entity)
+                        )
+                        and s.day.lower() == day_name.lower()
+                        for s in filtered_sessions
+                    )
+                    if has_session or len(entities) == 1:
+                        row_keys.append(rk)
         else:
             day_sessions = [s for s in filtered_sessions if s.day.lower() == target_day.lower()]
             if group_by == "room":
@@ -339,12 +359,13 @@ class JointAllocationService:
         for s in day_sessions:
             assigned_room = assignments.get(s.session_id, "Unassigned")
             if is_all_days:
+                day_abbr = s.day[:3].capitalize()
                 if group_by == "room":
-                    rk = f"{assigned_room} ({s.day[:3]})"
+                    rk = f"{assigned_room} ({day_abbr})"
                 elif group_by == "program":
-                    rk = f"{s.program} ({s.day[:3]})"
+                    rk = f"{s.program} ({day_abbr})"
                 else:
-                    rk = f"{s.cohort_id} ({s.day[:3]})"
+                    rk = f"{s.cohort_id} ({day_abbr})"
             else:
                 if group_by == "room":
                     rk = assigned_room

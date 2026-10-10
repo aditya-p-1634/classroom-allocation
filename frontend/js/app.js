@@ -2212,21 +2212,165 @@ M.Sc. Computational Finance,odd_sem3_CF,Derivatives Pricing,odd,Friday,3,4,class
     const tbody = document.getElementById('upload-timetable-tbody');
     if (!tbody) return;
 
+    const isAllDays = data.target_day === 'All Days';
+
     if (headerEl) {
-      headerEl.textContent = data.group_by === 'room' ? 'Room' : (data.group_by === 'program' ? 'Program' : 'Cohort');
+      if (isAllDays) {
+        headerEl.textContent = 'Weekday';
+      } else {
+        headerEl.textContent = data.group_by === 'room' ? 'Room' : (data.group_by === 'program' ? 'Program' : 'Cohort');
+      }
     }
 
     if (!data.row_keys || data.row_keys.length === 0) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="9" style="text-align: center; padding: 2rem; color: var(--text-muted);">
-            No scheduled sessions found for ${data.target_day} with active filters.
+          <td colspan="9" style="text-align: center; padding: 2.5rem; color: var(--text-muted);">
+            <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.25rem;">No matching sessions found</div>
+            <div style="font-size: 0.78rem;">No scheduled classes exist for ${data.target_day} with the active filters.</div>
           </td>
         </tr>
       `;
       return;
     }
 
+    if (isAllDays) {
+      // Group row keys by entity to build a unified weekly timetable
+      const dayFullMap = {
+        Mon: 'Monday',
+        Tue: 'Tuesday',
+        Wed: 'Wednesday',
+        Thu: 'Thursday',
+        Fri: 'Friday'
+      };
+
+      let entityIcon = '👥';
+      let entityCategory = 'Cohort';
+      if (data.group_by === 'room') {
+        entityIcon = '🏫';
+        entityCategory = 'Room';
+      } else if (data.group_by === 'program') {
+        entityIcon = '🎓';
+        entityCategory = 'Program';
+      }
+
+      const entityGroups = [];
+      const entityMap = new Map();
+
+      data.row_keys.forEach(rowKey => {
+        const match = rowKey.match(/^(.*?)(?:\s*\((Mon|Tue|Wed|Thu|Fri)\))?$/i);
+        const entityName = (match && match[1]) ? match[1].trim() : rowKey;
+        const dayAbbr = (match && match[2]) ? match[2].charAt(0).toUpperCase() + match[2].slice(1).toLowerCase() : '';
+        const dayFullName = dayFullMap[dayAbbr] || dayAbbr || 'Weekday';
+
+        if (!entityMap.has(entityName)) {
+          const grp = {
+            entity: entityName,
+            rows: []
+          };
+          entityMap.set(entityName, grp);
+          entityGroups.push(grp);
+        }
+        entityMap.get(entityName).rows.push({
+          rowKey: rowKey,
+          dayAbbr: dayAbbr,
+          dayFullName: dayFullName
+        });
+      });
+
+      let fullTableHtml = '';
+
+      entityGroups.forEach(grp => {
+        // Calculate total distinct sessions for this entity across the week
+        const groupSessionIds = new Set();
+        grp.rows.forEach(r => {
+          const rowSlots = data.grid[r.rowKey] || {};
+          for (let p = 1; p <= 8; p++) {
+            (rowSlots[p] || []).forEach(s => groupSessionIds.add(s.session_id));
+          }
+        });
+        const totalGroupSessions = groupSessionIds.size;
+
+        // Group Header banner spanning all columns
+        fullTableHtml += `
+          <tr class="weekly-entity-group-header" style="background: var(--bg-card-subtle, #f1f5f9); border-top: 2px solid var(--border-medium, #cbd5e1); border-bottom: 1px solid var(--border-medium, #cbd5e1);">
+            <th colspan="9" style="padding: 0.65rem 0.85rem; text-align: left; font-size: 0.85rem; color: var(--text-main, #1e293b); font-weight: 700;">
+              <span style="font-size: 0.95rem; margin-right: 0.35rem;">${entityIcon}</span>
+              <span>${grp.entity}</span>
+              <span style="font-weight: 500; font-size: 0.75rem; color: var(--text-muted, #64748b); margin-left: 0.6rem;">
+                (${totalGroupSessions} session occurrences across Monday–Friday)
+              </span>
+            </th>
+          </tr>
+        `;
+
+        // Render weekday rows for this entity in chronological Monday-Friday order
+        grp.rows.forEach(r => {
+          const rowSlots = data.grid[r.rowKey] || {};
+          const cells = [];
+          let skipUntilPeriod = 0;
+
+          for (let p = 1; p <= 8; p++) {
+            if (p < skipUntilPeriod) {
+              continue;
+            }
+
+            const sessions = rowSlots[p] || [];
+            if (sessions.length === 0) {
+              cells.push(`<td style="padding: 0.5rem; text-align: center; color: #cbd5e1; font-size: 0.75rem;">-</td>`);
+              continue;
+            }
+
+            const firstSession = sessions[0];
+            const span = (firstSession.start_period === p && firstSession.end_period > p)
+              ? (firstSession.end_period - firstSession.start_period + 1)
+              : 1;
+
+            if (span > 1) {
+              skipUntilPeriod = firstSession.end_period + 1;
+            }
+
+            const cellContent = sessions.map(s => {
+              const isAllocated = !!s.assigned_room_id;
+              const bgClass = isAllocated ? 'background: #eff6ff; border: 1px solid #bfdbfe;' : 'background: #fee2e2; border: 1px solid #fecaca;';
+              const roomDisplay = isAllocated ? `🏫 <strong>${s.assigned_room_id}</strong>` : '⚠️ <span style="color:red;">Unassigned</span>';
+              const isMulti = s.end_period > s.start_period;
+              const spanBadge = isMulti
+                ? `<span class="badge" style="background: #2563eb; color: white; font-size: 0.62rem; padding: 1px 5px; border-radius: 3px;">P${s.start_period}–P${s.end_period} (${s.end_period - s.start_period + 1} Periods)</span>`
+                : '';
+              const sessionJson = encodeURIComponent(JSON.stringify(s));
+
+              return `
+                <div class="session-cell-clickable" onclick="window.ciqApp.showUploadSessionDetail('${sessionJson}')" style="${bgClass} padding: 0.35rem 0.45rem; border-radius: 4px; font-size: 0.72rem; line-height: 1.25; height: 100%;">
+                  <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.25rem;">
+                    <strong style="color: var(--text-main); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${s.course}">${s.course}</strong>
+                    ${spanBadge}
+                  </div>
+                  <div style="color: var(--text-muted); font-size: 0.68rem; margin-top: 0.15rem;">${s.cohort_id} • ${s.session_type}</div>
+                  <div style="margin-top: 0.25rem; font-size: 0.72rem;">${roomDisplay}</div>
+                </div>
+              `;
+            }).join('');
+
+            cells.push(`<td colspan="${span}" style="padding: 0.35rem; vertical-align: top;">${cellContent}</td>`);
+          }
+
+          fullTableHtml += `
+            <tr style="border-bottom: 1px solid var(--border-light);">
+              <td style="padding: 0.5rem 0.75rem; font-weight: 700; font-size: 0.8rem; background: var(--bg-card-subtle); vertical-align: middle; white-space: nowrap; width: 110px; border-right: 1px solid var(--border-light);">
+                <span style="color: var(--color-primary, #2563eb);">📅 ${r.dayFullName}</span>
+              </td>
+              ${cells.join('')}
+            </tr>
+          `;
+        });
+      });
+
+      tbody.innerHTML = fullTableHtml;
+      return;
+    }
+
+    // Default Single-Day View (Monday - Friday individual views)
     tbody.innerHTML = data.row_keys.map(rowKey => {
       const rowSlots = data.grid[rowKey] || {};
       const cells = [];
